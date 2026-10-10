@@ -1,0 +1,186 @@
+{
+ "n_boundaries_measured": 19,
+ "n_boundaries_matched": 0,
+ "n_boundaries_theory": 2,
+ "max_rel_error": NaN,
+ "median_latency_model_error": 0.12388321048503298,
+ "boundaries": [
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 53006.77308494098,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r6_bottleneck",
+   "bps_measured": 61396.85469407319,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 261109.6606357155,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r6_bottleneck",
+   "bps_measured": 364831.62834001123,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 868577.5861014257,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r6_bottleneck",
+   "bps_measured": 1144723.9941136641,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 2313737.162048855,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r6_bottleneck",
+   "bps_measured": 4587455.975543148,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 15935746.320138989,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r5_ae",
+   "bps_measured": 20335292.07018669,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 42345.81304068691,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r6_bottleneck",
+   "bps_measured": 57023.62702984399,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 127778.85488258472,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 246047.2972909628,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 1496546.2996438416,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r6_bottleneck",
+   "bps_measured": 2228103.8378496068,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r6_bottleneck",
+   "high": "r4_summary",
+   "bps_measured": 3934512.0710844896,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 13950571.012923697,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 18843465.75715298,
+   "bps_theory": null,
+   "rel_error": NaN
+  }
+ ],
+ "family/n_theory": 4,
+ "family/n_measured": 2,
+ "family/n_matched": 1,
+ "family/max_rel_error": 0.28757522645870376,
+ "family_boundaries": [
+  {
+   "load": 0.0,
+   "low": "r2b_wavelet",
+   "high": "r0_raw",
+   "bps_measured": 22416799.38249891,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 3589981.632478374,
+   "bps_theory": 5039102.745730498,
+   "rel_error": 0.28757522645870376
+  }
+ ],
+ "latency_model_bias/load0": -0.059638693304502756,
+ "latency_model_bias/load0.8": 0.34758712295310024,
+ "H6_pass": false
+}

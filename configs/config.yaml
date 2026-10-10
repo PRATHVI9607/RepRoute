@@ -1,0 +1,13 @@
+# Root Hydra config. Compose with overrides, e.g. `kai exp e3 scenario=mini profile=battery_node`.
+defaults:
+  - dataset: pu
+  - profile: metered_cellular
+  - scenario: grid
+  - _self_
+
+seed: 0
+alphas: [0.02, 0.05, 0.10]
+delta: 0.1            # LTT (V1) failure probability
+p_audit: 0.02         # audit-in-the-loop sampling rate (E6)
+late_cap_factor: 10   # a window never delivered is charged as late_cap_factor × deadline
+workers: 10

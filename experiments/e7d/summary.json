@@ -1,0 +1,41 @@
+{
+ "backend": "Docker containers, tc netem rate + delay on the edge egress, same laptop",
+ "max_p50_rel_gap": 0.19098383587426776,
+ "min_selection_agreement": 1.0,
+ "rows": [
+  {
+   "bandwidth_bps": 1000000.0,
+   "p50_real_ms": 10.406137500467594,
+   "p50_sim_ms": 11.272820000001182,
+   "p50_rel_gap": 0.08328570514224368,
+   "p95_real_ms": 30.904491899491404,
+   "p95_sim_ms": 32.56451100000093,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0,
+   "bandwidth_estimate_real_bps": 887498.4333590015
+  },
+  {
+   "bandwidth_bps": 256000.0,
+   "p50_real_ms": 44.86966900003608,
+   "p50_sim_ms": 36.30028750000047,
+   "p50_rel_gap": 0.19098383587426776,
+   "p95_real_ms": 119.3022073024622,
+   "p95_sim_ms": 108.43198600000017,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0,
+   "bandwidth_estimate_real_bps": 243772.96393277196
+  },
+  {
+   "bandwidth_bps": 5000000.0,
+   "p50_real_ms": 9.225222500390373,
+   "p50_sim_ms": 10.274420000000895,
+   "p50_rel_gap": 0.11373140317928632,
+   "p95_real_ms": 15.384534100485325,
+   "p95_sim_ms": 17.280991000000245,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0,
+   "bandwidth_estimate_real_bps": 3237997.735255624
+  }
+ ],
+ "H7_pass": false
+}

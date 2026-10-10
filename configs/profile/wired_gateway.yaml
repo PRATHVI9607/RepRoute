@@ -1,0 +1,4 @@
+# Plant Ethernet with a shared edge CPU: CPU time dominates. Cost unit = one edge CPU-millisecond.
+prices: {name: wired_gateway, story: "plant Ethernet, shared edge CPU", p_byte: 1.0e-4, p_j: 0.0, p_cpu_ms: 1.0, p_late_ms: 10.0}
+energy: {p_cpu_w: 1.0, e_bit_j: 1.0e-8, source: modelled}
+mission: fidelity_first

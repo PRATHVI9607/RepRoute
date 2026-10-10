@@ -1,0 +1,4 @@
+# Closed-loop alarm path: lateness dominates everything else.
+prices: {name: deadline_critical, story: "closed-loop alarm path", p_byte: 1.0e-3, p_j: 0.0, p_cpu_ms: 0.1, p_late_ms: 1000.0}
+energy: {p_cpu_w: 1.0, e_bit_j: 2.0e-7, source: modelled}
+mission: liveness_first

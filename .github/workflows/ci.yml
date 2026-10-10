@@ -1,0 +1,24 @@
+# Pin every action to a commit SHA before enabling branch protection (PRD §21.6).
+name: ci
+on: [push, pull_request]
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv lock --check
+      - run: uv sync --extra lab --extra cpu --all-groups --frozen
+      - run: uv run --no-sync python scripts/verify_env.py
+      - run: uv run --no-sync nox -s lint types tests
+      - run: uv run --no-sync deptry src
+      - run: uv run --no-sync pip-audit
+  edge-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - run: docker buildx build --platform linux/amd64,linux/arm64 -f docker/edge.Dockerfile .
+      - run: docker buildx build --load -t kai-edge -f docker/edge.Dockerfile .
+      - run: docker run --rm kai-edge python -c "import importlib.util as u; assert u.find_spec('torch') is None"

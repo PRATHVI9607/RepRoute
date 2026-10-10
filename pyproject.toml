@@ -1,0 +1,141 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kai"
+version = "0.1.0"
+description = "Sufficiency-certified representation selection for edge-cloud industrial IoT"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# core = edge-safe only (no torch / sklearn / pandas / scipy)
+dependencies = [
+  "numpy>=2.5,<3", "pydantic>=2.14,<3", "msgpack>=1.2,<2", "zstandard>=0.25,<1",
+  "pywavelets>=1.10,<2", "psutil>=7.2,<8", "typer>=0.27", "rich>=15",
+]
+
+[project.optional-dependencies]
+edge  = ["onnxruntime>=1.31,<2"]
+cloud = ["onnxruntime>=1.31,<2", "lightgbm>=4.7,<5", "scikit-learn>=1.9,<2"]
+# lab never pins a torch build: add exactly one of `cpu` (default, PRD §10.3) or `gpu` (CUDA 13.0)
+lab   = [
+  "onnx>=1.23,<2", "onnxruntime>=1.31,<2", "scikit-learn>=1.9,<2",
+  "lightgbm>=4.7,<5", "scipy>=1.18,<2", "pandas>=3.0,<4", "pyarrow>=26", "statsmodels>=0.15",
+  "optuna>=5,<6", "hydra-core>=1.3,<2", "simpy>=4.1,<5", "matplotlib>=3.11,<4", "lz4>=4.4",
+]
+cpu = ["torch>=2.14,<2.15"]
+gpu = ["torch>=2.14,<2.15"]
+
+[project.scripts]
+kai = "kai.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=9", "pytest-cov", "pytest-xdist", "pytest-timeout", "hypothesis>=6.168", "ruff>=0.17",
+       "mypy>=2.4", "import-linter", "deptry", "pip-audit", "nox", "pre-commit>=4.6", "jupytext"]
+
+[tool.uv]
+default-groups = ["dev"]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
+# torch comes from the PyTorch indexes: CPU-only wheels by default (small, deterministic),
+# CUDA 13.0 wheels with `--extra gpu`. macOS uses the PyPI wheel.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+[[tool.uv.index]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-gpu", extra = "gpu", marker = "sys_platform != 'darwin'" },
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kai"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+[tool.ruff.lint]
+select = ["E","F","I","UP","B","SIM","C4","PL","RUF","NPY","PERF","PT"]
+# RUF001-003: Greek letters are the project's maths notation (α, λ, ρ, φ), not typos
+# PLC0415: lazy imports are deliberate — they keep lab dependencies out of the edge plane
+ignore = ["PLR0913", "PLR0917", "PLR2004", "PLC0415", "RUF001", "RUF002", "RUF003"]
+[tool.ruff.lint.isort]
+known-first-party = ["kai", "toy"]
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR0915"]
+# a prose template: sentences are kept on one line each so the report text stays greppable
+"scripts/report.py" = ["E501", "PLR0912", "PLR0915"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+ignore_missing_imports = true
+mypy_path = "src"
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+# `strict = true` is a global-only switch in mypy, so the strict set is spelled out per package.
+[[tool.mypy.overrides]]
+module = ["kai.contracts.*","kai.certify.*","kai.select.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+check_untyped_defs = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+# the default run skips `slow` (the 5-minute mini-paper); `make mini-paper` and the nightly job run it
+addopts = "-ra --strict-markers -m 'not slow' --cov=kai --cov-report=term-missing:skip-covered -n auto --dist loadgroup"
+timeout = 600
+markers = [
+  "slow: minutes-long end-to-end runs (nightly, `make mini-paper`)",
+  "pi: needs Raspberry Pi",
+  "netem: needs NET_ADMIN",
+  "realdata: needs the processed Paderborn subset under data/processed",
+]
+filterwarnings = ["error::DeprecationWarning:kai.*"]
+
+[tool.coverage.run]
+branch = true
+source = ["kai"]
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\.$"]
+
+[tool.importlinter]
+root_package = "kai"
+include_external_packages = true
+[[tool.importlinter.contracts]]
+name = "edge/contracts must stay light"
+type = "forbidden"
+source_modules = ["kai.edge", "kai.contracts"]
+forbidden_modules = ["torch","sklearn","pandas","scipy","lightgbm"]
+[[tool.importlinter.contracts]]
+name = "contracts imports nothing from kai"
+type = "forbidden"
+source_modules = ["kai.contracts"]
+forbidden_modules = [
+  "kai.data","kai.reps","kai.tasks","kai.certify","kai.select","kai.edge","kai.cloud",
+  "kai.link","kai.profile","kai.bench","kai.analysis",
+]
+
+[tool.deptry]
+known_first_party = ["kai"]
+[tool.deptry.per_rule_ignores]
+# pyarrow is pandas' Parquet engine (never imported by name); lz4 is in the PRD's pinned set for
+# the fast variant of R1, which is not implemented yet; rich is what typer renders help and errors with
+DEP002 = ["pyarrow", "lz4", "rich"]
+# omegaconf is hydra-core's configuration object: hydra pins it, we follow hydra's version
+DEP003 = ["omegaconf"]

@@ -1,0 +1,14 @@
+# Nightly: rebuild the mini-paper from the tiny synthetic fixture to catch silent regressions (PRD §9.6).
+name: nightly
+on:
+  schedule: [{cron: "17 2 * * *"}]
+  workflow_dispatch:
+jobs:
+  mini-paper:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --extra lab --extra cpu --all-groups --frozen
+      - run: uv run --no-sync pytest -q
+      - run: make mini-paper

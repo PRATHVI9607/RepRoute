@@ -1,0 +1,5 @@
+# Pay-per-MB private LTE/5G uplink: bytes dominate. Cost unit = one transmitted byte.
+prices: {name: metered_cellular, story: "pay-per-MB private LTE/5G", p_byte: 1.0, p_j: 0.0, p_cpu_ms: 0.0, p_late_ms: 100.0}
+# Modelled, not measured (PRD §5.6): ~1 W extra per busy core (Pi 4 class), LTE-class radio energy.
+energy: {p_cpu_w: 1.0, e_bit_j: 2.0e-7, source: modelled}
+mission: fidelity_first

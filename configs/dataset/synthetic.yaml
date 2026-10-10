@@ -1,0 +1,6 @@
+# Synthetic fixture (smoke tests and the CI mini-paper). Never used for reported results.
+# Create it with `kai synth`, then `kai folds dataset=synthetic`.
+id: synthetic-v1
+windows: data/processed/synthetic.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds_synthetic

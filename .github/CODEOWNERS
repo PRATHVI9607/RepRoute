@@ -1,0 +1,6 @@
+# Role letters are assigned to people at the Week-1 kickoff (PRD §14). Replace the placeholders.
+# /src/kai/data/ /src/kai/reps/classical.py        @role-A
+# /src/kai/tasks/ /src/kai/reps/latent.py          @role-B
+# /src/kai/certify/ /src/kai/select/ /docs/theory/ @role-C
+# /src/kai/edge/ /src/kai/cloud/ /src/kai/link/ /src/kai/profile/ /docker/ /scripts/ @role-D
+# /src/kai/bench/ /src/kai/analysis/ /docs/research/ /.github/ @role-E

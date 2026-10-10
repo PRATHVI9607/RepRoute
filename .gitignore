@@ -1,0 +1,68 @@
+# ---- Python ------------------------------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# ---- test, lint and type-check caches ----------------------------------------------------------
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---- data: never committed (large, and the Paderborn licence is unverified) --------------------
+# Only the split manifests under data/splits/ are tracked.
+data/raw/
+data/interim/
+data/processed/
+
+# ---- trained models, bundles, profiles: regenerate with `make folds` / `make profile` ----------
+artifacts/
+
+# ---- experiments: summaries, figures and the run registry are tracked --------------------------
+# The per-cell grids are megabytes each and regenerate with `make experiments`.
+experiments/e3/results.parquet
+experiments/e5*/results.parquet
+experiments/**/*.npz
+experiments/**/*.onnx
+
+# ---- Hydra run directories ---------------------------------------------------------------------
+outputs/
+multirun/
+
+# ---- notebooks: jupytext .py only --------------------------------------------------------------
+*.ipynb
+.ipynb_checkpoints/
+
+# ---- DVC local state (the .dvc files themselves are tracked once a remote exists) --------------
+.dvc/cache/
+.dvc/tmp/
+
+# ---- secrets and local environment -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---- local AI-assist tooling: per developer, not shared ----------------------------------------
+.claude/
+CLAUDE.md
+.mcp.json
+.codegraph/
+
+# ---- editors and operating systems -------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- stray run output --------------------------------------------------------------------------
+*.log
+nohup.out

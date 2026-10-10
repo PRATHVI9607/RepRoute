@@ -1,0 +1,4 @@
+# Solar/battery sensor on a low-power cellular uplink: energy dominates. Cost unit = one joule.
+prices: {name: battery_node, story: "solar/battery sensor, LPWAN/cellular uplink", p_byte: 0.0, p_j: 1.0, p_cpu_ms: 0.0, p_late_ms: 1.0e-3}
+energy: {p_cpu_w: 1.0, e_bit_j: 1.0e-6, source: modelled}
+mission: fidelity_first

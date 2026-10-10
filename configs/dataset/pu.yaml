@@ -1,0 +1,5 @@
+# Paderborn University bearing data, 3-class subset (primary dataset, PRD §8.1)
+id: pu-v1
+windows: data/processed/pu.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds

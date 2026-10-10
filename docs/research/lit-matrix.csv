@@ -1,0 +1,13 @@
+id,work,layer,families,task_domain,guarantee,kai_differentiation
+1,"Chen et al. 2024/2026 (semantic multi-task offloading, QoE)",B,1,general,no,"one semantic family; no heterogeneous menu; no certificate"
+2,"Li et al. 2024 (graph-RL dynamic semantic compression)",B,1,vision,no,"single family"
+3,"Zheng et al. 2025 (computation-aware offloading)",B,1,general,no,"single family"
+4,"Lyu 2024; Xie 2023 (information bottleneck)",A,1,general,no,"inside one learned architecture"
+5,"Lin 2025; Yang 2026 (industrial semantic sensing)",A,1,industrial images,no,"image / single pathway"
+6,"Amiri 2022 (SIC-EDGE)",B,1,ECG,no,"one wavelet hierarchy; closest to C6"
+7,"Zhang 2023 (adaptive IoT data reduction)",B,1,IoT,no,"reconstruction-oriented; one family (baseline B9)"
+8,"Girgis 2026 (TS-JEPA); Dutta 2026 (CHARM)",A,1,sensor time series,no,"a candidate representation (R8), not a selector"
+9,"Qu 2026 (semantic/traditional switch + caching)",B,2,general,no,"two modes; no guarantee (baseline B10)"
+10,"Matsubara 2022; Shao & Zhang 2020 (supervised / learned feature compression)",A,1,vision,no,"encoder design; not runtime selection"
+11,"Kalør & Ohtsuki 2025, arXiv 2506.11391",B,models not payloads,image classification,conformal risk control,"selects feature-extractor + model combinations; Kai selects the payload representation per window (baseline B11)"
+12,"Huang, Park, Paoletti, Simeone 2025, arXiv 2510.17543",B,models not payloads,general,conformal alignment,"decides whether to offload; Kai decides what representation to send"

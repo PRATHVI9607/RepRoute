@@ -1,0 +1,38 @@
+{
+ "backend": "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi)",
+ "max_p50_rel_gap": 0.1558475905784973,
+ "min_selection_agreement": 1.0,
+ "rows": [
+  {
+   "bandwidth_bps": 256000.0,
+   "p50_real_ms": 31.403006998516503,
+   "p50_sim_ms": 31.300287500001467,
+   "p50_rel_gap": 0.0032710083629853806,
+   "p95_real_ms": 103.3975799984546,
+   "p95_sim_ms": 103.43198600000107,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0
+  },
+  {
+   "bandwidth_bps": 1000000.0,
+   "p50_real_ms": 7.191816999693401,
+   "p50_sim_ms": 6.272820000001289,
+   "p50_rel_gap": 0.12778370191167135,
+   "p95_real_ms": 27.924767699005315,
+   "p95_sim_ms": 27.56451100000019,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0
+  },
+  {
+   "bandwidth_bps": 5000000.0,
+   "p50_real_ms": 6.248184499781928,
+   "p50_sim_ms": 5.274420000001001,
+   "p50_rel_gap": 0.1558475905784973,
+   "p95_real_ms": 12.21170210337732,
+   "p95_sim_ms": 12.280991000001196,
+   "selection_agreement": 1.0,
+   "delivered_real": 1.0
+  }
+ ],
+ "H7_pass": false
+}

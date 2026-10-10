@@ -1,0 +1,10 @@
+# Small grid for CI and the mini-paper.
+bandwidths_bps: [256.0e3, 5.0e6]
+traces: [markov_bursty]
+deadlines_ms: [100, 1000]
+loads: [0.0, 0.8]
+sensors: [1, 8]
+rtt_ms: 20.0
+n_windows: 300
+energy_budget_j: {normal: .inf, constrained: 2.0e-3}
+storage_bytes: {ample: .inf, tight: 16384}

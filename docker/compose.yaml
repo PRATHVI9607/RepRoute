@@ -1,0 +1,20 @@
+# Closed loop over real sockets with kernel-level shaping (PRD §5.5 backend 2).
+#   BUNDLE=artifacts/bundles/<id> RATE=1mbit docker compose -f docker/compose.yaml up --build --abort-on-container-exit
+services:
+  cloud:
+    build: {context: .., dockerfile: docker/cloud.Dockerfile}
+    volumes: ["../${BUNDLE:?set BUNDLE to a bundle directory}:/bundle:ro"]
+    command: ["kai", "cloud", "/bundle", "--port", "7400"]
+  edge:
+    build: {context: .., dockerfile: docker/edge.Dockerfile}
+    depends_on: [cloud]
+    cap_add: [NET_ADMIN]
+    cpus: "${EDGE_CPUS:-1.0}"        # cgroup throttling: 1 - ρ of one core
+    volumes:
+      - "../${BUNDLE}:/bundle:ro"
+      - "../${WINDOWS:-data/processed/replay.npz}:/windows.npz:ro"
+      - "../experiments/docker:/out"
+    command:
+      - sh
+      - -c
+      - "shape ${RATE:-1mbit} ${DELAY_MS:-10} && kai edge /bundle /windows.npz --host cloud --port 7400 --n ${N:-300} --alpha ${ALPHA:-0.05} --deadline-ms ${DEADLINE_MS:-250} --telemetry /out/telemetry_${RATE:-1mbit}.msgpack"

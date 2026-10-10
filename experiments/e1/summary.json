@@ -1,0 +1,10 @@
+{
+ "n_folds": 5,
+ "n_reps_profiled": 9,
+ "f_raw_macro_f1": 0.4720278899655866,
+ "majority_macro_f1": 0.1835819529004658,
+ "t_probe_ms": 1.3380125,
+ "t_pred_ms": 0.5014225,
+ "t_sel_ms": 0.506013,
+ "mean_load_exponent": 0.09930205552778625
+}

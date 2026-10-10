@@ -1,0 +1,22 @@
+{
+ "alpha": 0.05,
+ "p_audit": 0.02,
+ "L1/n_folds": 5,
+ "L1/safe_set_risk_static": 0.06682595534683843,
+ "L1/policy_risk_static": 0.044776421687102955,
+ "L1/policy_risk_aci": 0.043477228159941636,
+ "L1/bytes_static": 2131.805274753801,
+ "L1/bytes_aci": 2240.1964822060036,
+ "L1/audit_bytes": 141.3199017247472,
+ "L1/risk_audit_estimate": 0.04004362577397933,
+ "L1/drift_fired": 0.9714537784596287,
+ "L2/n_folds": 2,
+ "L2/safe_set_risk_static": 0.12600730634020077,
+ "L2/policy_risk_static": 0.1254699608270358,
+ "L2/policy_risk_aci": 0.053534804037344744,
+ "L2/bytes_static": 2721.722739024577,
+ "L2/bytes_aci": 3229.9829778164203,
+ "L2/audit_bytes": 135.80345278049242,
+ "L2/risk_audit_estimate": 0.05373455131649651,
+ "L2/drift_fired": 0.9064454832450819
+}

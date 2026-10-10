@@ -1,0 +1,6 @@
+{
+  "name": "kai-lab",
+  "build": {"context": "..", "dockerfile": "../docker/lab.Dockerfile"},
+  "customizations": {"vscode": {"extensions": ["ms-python.python", "charliermarsh.ruff"]}},
+  "postCreateCommand": "uv sync --extra lab --extra cpu --all-groups --frozen"
+}

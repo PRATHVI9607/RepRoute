@@ -1,0 +1,18 @@
+# Pin every `rev` with `pre-commit autoupdate --freeze` before the first team commit (PRD §21.5).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks: [{id: ruff, args: [--fix]}, {id: ruff-format}]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - {id: check-added-large-files, args: [--maxkb=500]}
+      - {id: check-yaml}
+      - {id: end-of-file-fixer}
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks: [{id: gitleaks}]
+  - repo: local
+    hooks:
+      - {id: mypy, name: mypy (strict pkgs), entry: uv run --no-sync mypy src/kai/contracts src/kai/certify src/kai/select, language: system, pass_filenames: false}
+      - {id: no-l0-splits, name: ban random-window splits, entry: uv run --no-sync python scripts/check_no_l0_splits.py, language: system, pass_filenames: false}
