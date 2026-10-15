@@ -61,6 +61,7 @@ class Result:
     wire_bytes: np.ndarray  # [n] bytes put on the link for this window (payload + frame + audit)
     disagreed: np.ndarray  # [n] bool: the transmitted decision differs from the raw decision
     audited: np.ndarray  # [n] bool
+    probed: np.ndarray  # [n] bool: False when a cascade served the window from its free set
     offered_bytes: float = 0.0
     delivered_bytes: float = 0.0
     dropped_bytes: float = 0.0
@@ -107,6 +108,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
         wire_bytes=np.zeros(n),
         disagreed=np.zeros(n, bool),
         audited=np.zeros(n, bool),
+        probed=np.ones(n, bool),
     )
     arrived = np.zeros(n)
     cpu_queue: simpy.Store = simpy.Store(env)
@@ -128,8 +130,17 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
         actual.overheads.total_ms / (1.0 - scenario.load) ** actual.overheads.load_exponent
     )
     edge_ms = actual.edge_time_ms(scenario.load)
+    # a cascade selector skips the probe and predictor on windows its free set can serve
+    pre_select = getattr(selector, "select_without_scores", None)
+    cheap = truth_model.for_policy("select")
+    cheap_edge_ms = cheap.edge_time_ms(scenario.load)
+    cheap_overhead_ms = (
+        cheap.overheads.total_ms / (1.0 - scenario.load) ** cheap.overheads.load_exponent
+    )
+    n_reps = len(truth_model.profiles.rep_ids)
     cloud_ms = truth_model.profiles.t_dec_ms + truth_model.profiles.t_head_ms
     raw_wire = float(truth_model.profiles.size_bytes[0]) + OVERHEAD_BYTES
+    observe = getattr(selector, "observe", None)  # learning baselines hear about audited decisions
 
     def track_queue(delta: int) -> None:
         nonlocal waiting, last_change
@@ -176,24 +187,37 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 energy_budget_j=scenario.energy_budget_j,
                 storage_free_bytes=scenario.storage_bytes - backlog - deferred_bytes,
             )
-            ghat = work.ghat[i]
-            win = Window(certifier.safe_set(ghat, work.phi[i]), ghat, work.phi[i])
-            truth = Truth(work.d[i], replace(state, bandwidth_bps=scenario.trace.rate(env.now)))
-            dec = selector.select(win, state, truth)
+            dec = pre_select(certifier.free_set(n_reps), state) if pre_select else None
+            if dec is None:
+                ghat = work.ghat[i]
+                win = Window(certifier.safe_set(ghat, work.phi[i]), ghat, work.phi[i])
+                truth = Truth(work.d[i], replace(state, bandwidth_bps=scenario.trace.rate(env.now)))
+                dec = selector.select(win, state, truth)
+                res.edge_ms[i] = edge_ms[dec.rep] if dec.rep != NO_REP else overhead_ms
+            else:
+                res.probed[i] = False
+                res.edge_ms[i] = cheap_edge_ms[dec.rep] if dec.rep != NO_REP else cheap_overhead_ms
             res.flag[i] = FLAGS.index(dec.flag)
             res.rep[i] = dec.rep
-            res.edge_ms[i] = edge_ms[dec.rep] if dec.rep != NO_REP else overhead_ms
             yield env.timeout(res.edge_ms[i] / 1000.0)
             if dec.rep != NO_REP:
                 res.disagreed[i] = bool(work.d[i, dec.rep])
                 nbytes = float(work.payload_bytes[i, dec.rep]) + OVERHEAD_BYTES
                 backlog += nbytes
                 enqueue(live, _Frame(i, nbytes, live=True))
-                if dec.rep != 0 and audit.should_audit():  # also ship raw so the cloud can compare
-                    res.audited[i] = True
-                    certifier.feedback(bool(work.d[i, dec.rep]))
-                    backlog += raw_wire
-                    enqueue(live, _Frame(i, raw_wire, live=False))
+                if audit.should_audit():
+                    if dec.rep != 0:  # also ship raw so the cloud can compare
+                        res.audited[i] = True
+                        certifier.feedback(bool(work.d[i, dec.rep]))
+                        if observe is not None:
+                            observe(dec.rep, bool(work.d[i, dec.rep]))
+                        backlog += raw_wire
+                        enqueue(live, _Frame(i, raw_wire, live=False))
+                    else:
+                        # raw agrees with itself: an audit that costs no bytes. Without it the
+                        # audited decisions are the non-raw ones only, and an adaptive threshold
+                        # that reaches raw-only never hears anything again (ADR 0007).
+                        certifier.feedback(False)
             elif dec.flag == "deferred":
                 while deferred and deferred_bytes + raw_wire > scenario.storage_bytes - backlog:
                     old = deferred.popleft()  # buffer full: drop the oldest cached window

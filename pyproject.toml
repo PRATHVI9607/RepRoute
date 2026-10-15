@@ -71,6 +71,8 @@ known-first-party = ["kai", "toy"]
 "tests/**" = ["PLR0915"]
 # a prose template: sentences are kept on one line each so the report text stays greppable
 "scripts/report.py" = ["E501", "PLR0912", "PLR0915"]
+# a research log: registries of one-line candidate lambdas and Markdown table rows
+"scripts/model_search.py" = ["E501", "PLW0108", "RUF007", "PLR0912", "PLR0914", "PLR0915"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -133,9 +135,10 @@ forbidden_modules = [
 
 [tool.deptry]
 known_first_party = ["kai"]
+extend_exclude = ["noxfile.py"]  # the task runner itself, installed with the dev tools
 [tool.deptry.per_rule_ignores]
 # pyarrow is pandas' Parquet engine (never imported by name); lz4 is in the PRD's pinned set for
-# the fast variant of R1, which is not implemented yet; rich is what typer renders help and errors with
+# the fast variant of R1, which is not built (ADR 0009); rich is what typer renders help and errors with
 DEP002 = ["pyarrow", "lz4", "rich"]
 # omegaconf is hydra-core's configuration object: hydra pins it, we follow hydra's version
 DEP003 = ["omegaconf"]

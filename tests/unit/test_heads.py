@@ -63,3 +63,37 @@ def test_spectral_reference_model_ignores_gain_and_exports(ws: WindowSet) -> Non
     sess = ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
     assert np.abs(sess.run(None, {"x": x[:, None, :]})[0] - logits).max() <= 1e-4
     assert sum(p.numel() for p in model.parameters()) < 100  # low capacity by design
+
+
+def test_envelope_reference_model_ignores_gain_and_exports(ws: WindowSet) -> None:
+    model = tr.train_envnet(ws.x, ws.label, ws.bearing_id, seed=0)
+    x = ws.x[::7].astype(np.float32) / 32768.0
+    logits = tr.predict(model, x)
+    assert (logits.argmax(1) == ws.label[::7]).mean() > 0.6  # impact rates separate the classes
+    # peak-to-floor ratios of the envelope spectrum: the window's level cannot change the decision
+    assert (tr.predict(model, x * 0.2).argmax(1) == logits.argmax(1)).mean() > 0.99
+    sess = ort.InferenceSession(
+        tr.export_onnx(model, ws.window_n), providers=["CPUExecutionProvider"]
+    )
+    assert np.abs(sess.run(None, {"x": x[:, None, :]})[0] - logits).max() <= 1e-3
+    assert np.isfinite(tr.predict(model, np.zeros((2, ws.window_n), np.float32))).all()
+
+
+def test_teacher_front_bottleneck_repeats_the_teacher_from_sixteen_bytes(ws: WindowSet) -> None:
+    from kai.reps.latent import OnnxLatent
+    from kai.tasks.pipeline import latent_features
+
+    teacher = tr.train_envnet(ws.x, ws.label, ws.bearing_id, seed=0)
+    encoder = tr.train_front_bottleneck(
+        teacher, ws.x, 16, epochs=30, seed=0, device=tr.resolve_device("cpu")
+    )
+    rep = OnnxLatent(
+        "r6_bottleneck", ws.window_n, tr.export_onnx(encoder, ws.window_n), np.full(16, 1 / 127.0)
+    )
+    assert rep.size_model().mean_bytes == 16
+    z = latent_features(rep, ws.x)  # through int8 quantisation, as on the wire
+    assert z.shape == (len(ws), 16)
+    assert np.abs(z).max() <= 1.0
+    decision = tr.predict(teacher, ws.x.astype(np.float32) / 32768.0).argmax(1)
+    head = _linear(z[::2], decision[::2], 1.0, 0)
+    assert (head.predict(z[1::2]) == decision[1::2]).mean() > 0.9

@@ -1,0 +1,30 @@
+{
+ "modfloor16": {
+  "window_n": 16384,
+  "bearing_majority_vote_accuracy": 0.7121212121212122,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.7178355332090277,
+  "speed_900_vs_1500_accuracy": 0.8583448516975009,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.4358089026305228,
+   "N15_M01_F10": 0.6203616072761685,
+   "N15_M07_F04": 0.6124188033600214,
+   "N15_M07_F10": 0.6060117561300146
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.8352751470605488
+ },
+ "kinb_fft256": {
+  "window_n": 16384,
+  "bearing_majority_vote_accuracy": 0.7424242424242424,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.751301730882138,
+  "speed_900_vs_1500_accuracy": 0.963164581131112,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.49093435966554494,
+   "N15_M01_F10": 0.6458481586529998,
+   "N15_M07_F04": 0.6451563313089823,
+   "N15_M07_F10": 0.6540257501450785
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.896978066807762
+ }
+}

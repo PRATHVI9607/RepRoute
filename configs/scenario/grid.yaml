@@ -1,11 +1,10 @@
 # Scenario grid of PRD §9.2 (DES full factorial over these axes).
 bandwidths_bps: [64.0e3, 256.0e3, 1.0e6, 5.0e6, 20.0e6]
-traces: [3g_synth, 4g_synth, 5g_synth, markov_bursty]   # synthetic: see kai/link/traces.py
+# *_synth and markov_bursty are synthetic (kai/link/traces.py). ucc4g_* replay measured 4G
+# throughput logs by mobility class (scripts/download_traces.py; configs/scenario/traces/README.md).
+traces: [3g_synth, 4g_synth, 5g_synth, markov_bursty, ucc4g_static, ucc4g_pedestrian, ucc4g_car]
 deadlines_ms: [50, 100, 250, 1000]
 loads: [0.0, 0.5, 0.8]
 sensors: [1, 8, 32]
 rtt_ms: 20.0
 n_windows: 1200
-# constrained-resource levels used by the E5 constraint ablation
-energy_budget_j: {normal: .inf, constrained: 2.0e-3}
-storage_bytes: {ample: .inf, tight: 16384}

@@ -11,7 +11,7 @@ from torch import nn
 from kai.contracts.windows import WindowSet
 from kai.reps.latent import OnnxLatent, OnnxVQ
 from kai.tasks import train as tr
-from kai.tasks.models import LatentEncoder, RawNet, VQEncoder
+from kai.tasks.models import EnvNet, LatentEncoder, RawNet, VQEncoder
 
 N = 1024
 
@@ -20,6 +20,7 @@ def models() -> dict[str, nn.Module]:
     torch.manual_seed(0)
     out = {
         "f_raw": RawNet(),
+        "f_raw_env": EnvNet(N),
         "r5_encoder": LatentEncoder(N, 32),
         "r6_encoder": nn.Sequential(LatentEncoder(N, 16), nn.Tanh()),
     }
@@ -30,7 +31,7 @@ def models() -> dict[str, nn.Module]:
     return out
 
 
-@pytest.mark.parametrize("name", ["f_raw", "r5_encoder", "r6_encoder"])
+@pytest.mark.parametrize("name", ["f_raw", "f_raw_env", "r5_encoder", "r6_encoder"])
 def test_float_outputs_match_within_tolerance(name: str, ws: WindowSet) -> None:
     model = models()[name]
     x = ws.x[:64].astype(np.float32) / 32768.0

@@ -8,7 +8,7 @@ from typing import Literal
 import numpy as np
 
 from kai.certify import crc, ltt
-from kai.certify.fit import fit_predictor
+from kai.certify.fit import constant_scores, fit_predictor
 from kai.certify.predictor import Predictor
 from kai.contracts.schemas import LambdaEntry, LambdaTable, Partition, Variant
 from kai.tasks.pipeline import Table
@@ -72,6 +72,34 @@ def calibrate(
                 LambdaEntry(variant="v2", alpha=a, lam=crc.crc_threshold(m2, a), n_calib=n)
             )
     return LambdaTable(entries=entries)
+
+
+def static_safe_set(d_ptrain: np.ndarray, d_cal: np.ndarray, alpha: float) -> np.ndarray:
+    """V0 with constant scores: one safe set for every window, with the any-policy guarantee.
+
+    The representations are ordered by their `ptrain` disagreement rate; CRC on the calibration
+    windows decides how far down that order the set may go.
+    """
+    scores = constant_scores(d_ptrain)
+    ghat_cal = np.broadcast_to(scores, d_cal.shape)
+    lam = crc.crc_threshold(crc.first_loss_threshold(ghat_cal, d_cal), alpha)
+    out: np.ndarray = crc.safe_set(scores, lam)
+    return out
+
+
+def cascade_certificate(
+    ghat_cal: np.ndarray, d_cal: np.ndarray, d_ptrain: np.ndarray, alpha: float
+) -> tuple[np.ndarray, float]:
+    """The cascade's certificate (ADR 0011): a static set F and a per-window set A(x), each
+    calibrated by V0 at α/2. Their union has E[loss] ≤ α/2 + α/2 for any policy inside it.
+
+    Returned as (prior, λ) for `Certifier(λ, prior=prior)`: members of F get the score −1 and
+    are in every window's set; every other representation keeps its per-window score ĝ.
+    """
+    free = static_safe_set(d_ptrain, d_cal, alpha / 2)
+    prior = np.where(free, crc.RAW_ONLY, np.inf)
+    lam = crc.crc_threshold(crc.first_loss_threshold(ghat_cal, d_cal), alpha / 2)
+    return prior, lam
 
 
 def threshold(

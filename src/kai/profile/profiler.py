@@ -34,20 +34,29 @@ def time_ms(
 ) -> np.ndarray:
     """Wall time in ms of `fn(i)` for `repeats` items after `warmup` untimed calls.
 
-    With `period_ms > 0` the process sleeps that long before every timed call, like an edge that
-    handles one window per period. That matters: after an idle gap the caches are cold and the CPU
-    has clocked down, and the same call takes several times longer than in a tight loop.
+    With `period_ms > 0` one call starts per period, like an edge that handles one window per
+    period: the process sleeps for whatever is left of the period after the call. That matters:
+    after an idle gap the caches are cold and the CPU has clocked down, and the same call takes
+    several times longer than in a tight loop. A call longer than the period leaves no idle time,
+    which is the tight loop again — a node with many sensors is never idle (ADR 0008).
     """
     for i in range(warmup):
         fn(i % n_items)
     out = np.empty(repeats)
+    spent_ns = 0.0
     for j in range(repeats):
-        if period_ms:
-            time.sleep(period_ms / 1000.0)
+        _rest(period_ms, spent_ns)
         t0 = time.perf_counter_ns()
         fn(j % n_items)
-        out[j] = (time.perf_counter_ns() - t0) / 1e6
+        spent_ns = float(time.perf_counter_ns() - t0)
+        out[j] = spent_ns / 1e6
     return out
+
+
+def _rest(period_ms: float, spent_ns: float) -> None:
+    """Sleep for what is left of the period after work that took `spent_ns`."""
+    if period_ms * 1e6 > spent_ns:
+        time.sleep((period_ms * 1e6 - spent_ns) / 1e9)
 
 
 def summarise(samples: np.ndarray) -> tuple[float, float, float]:
@@ -153,6 +162,50 @@ def profile_menu(
             )
         )
     return profiles, curves
+
+
+def profile_pipeline(
+    reps: list[BaseRep],
+    windows: np.ndarray,
+    predictor: Predictor,
+    select: Callable[[np.ndarray], object],
+    period_ms: float,
+    repeats: int = 30,
+    warmup: int = 5,
+) -> tuple[list[tuple[float, float, float]], Overheads]:
+    """Timings inside the whole per-window pipeline, one window per `period_ms`.
+
+    A busy node does not run its stages one at a time with idle gaps in between: every window goes
+    probe → predictor → selector → encoder back to back, and the next window follows `period_ms`
+    after the previous one started. Each stage is timed where it runs. Returns, per representation,
+    the encoder's (median, MAD, q95) in ms, and the overhead stages as the median over the
+    pipelines of all representations (load exponent left at 0: fitted at one sensor).
+    """
+    n = len(windows)
+    encoders: list[tuple[float, float, float]] = []
+    stages = np.empty((len(reps), 3))
+    for r, rep in enumerate(reps):
+        times = np.empty((warmup + repeats, 4))
+        spent_ns = 0.0
+        for j in range(warmup + repeats):
+            _rest(period_ms, spent_ns)
+            window = windows[j % n]
+            t0 = time.perf_counter_ns()
+            phi = probe(window)
+            t1 = time.perf_counter_ns()
+            ghat = predictor.predict(phi)
+            t2 = time.perf_counter_ns()
+            select(ghat)
+            t3 = time.perf_counter_ns()
+            rep.encode(window)
+            t4 = time.perf_counter_ns()
+            spent_ns = float(t4 - t0)
+            times[j] = (t1 - t0, t2 - t1, t3 - t2, t4 - t3)
+        times = times[warmup:] / 1e6
+        encoders.append(summarise(times[:, 3]))
+        stages[r] = np.median(times[:, :3], axis=0)
+    t_probe, t_pred, t_sel = np.median(stages, axis=0)
+    return encoders, Overheads(float(t_probe), float(t_pred), float(t_sel), 0.0)
 
 
 def measure_overheads(

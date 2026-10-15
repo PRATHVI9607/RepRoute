@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import uuid
@@ -50,13 +51,14 @@ def record(
         json.dumps(row["metrics"], sort_keys=True),
     )
     path = path or registry_path()
-    # shortcut: read-modify-write without a lock, fine for one person running experiments in
-    # sequence; switch to one file per run if several processes ever record at once
-    frame = pd.DataFrame([row])
-    if path.exists():
-        frame = pd.concat([pd.read_parquet(path), frame], ignore_index=True)
     path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(path, index=False)
+    # experiments may finish at the same time: serialise the read-modify-write
+    with path.with_suffix(".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        frame = pd.DataFrame([row])
+        if path.exists():
+            frame = pd.concat([pd.read_parquet(path), frame], ignore_index=True)
+        frame.to_parquet(path, index=False)
     return rec
 
 

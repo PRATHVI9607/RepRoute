@@ -149,6 +149,49 @@ class TwoModeSwitch:
 
 
 @dataclass
+class AdaEdgeBandit:
+    """B13, after Liu, Paparrizos & Elmore 2024 (AdaEdge, ICDE), online mode. Best effort.
+
+    Kept from the paper: lossless first; when lossless does not fit the link, an optimistic
+    ε-greedy bandit over the lossy arms whose reward is agreement of the model's output on the
+    decoded data with its output on raw data; ε = 0.01, constant step 0.5; no risk bound.
+    Adapted (docs/research/baselines-repro.md): the paper equalises the size of all lossy arms and
+    evaluates the reward on the device; here the arms are this project's representations with
+    their own sizes, infeasible arms are masked, ties go to the cheaper arm, and the reward
+    arrives only for audited windows, whose raw copies are paid for.
+    """
+
+    plan: CostModel
+    lossless: int
+    rng: np.random.Generator
+    epsilon: float = 0.01
+    step: float = 0.5
+    audit_rate: float = 0.02  # share of sent windows it asks the cloud to compare with raw
+    name: str = "b13_adaedge"
+    overhead: ClassVar[OverheadKind] = "select"
+    _q: np.ndarray = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._q = np.ones(len(self.plan.profiles.rep_ids))  # optimistic: every arm agrees
+
+    def select(self, win: Window, state: State, truth: Truth | None = None) -> Decision:
+        cost, feasible = self.plan.evaluate(state)
+        if feasible[self.lossless]:
+            return send_anyway(self.lossless, win.safe)
+        arms = feasible.copy()
+        arms[[0, self.lossless]] = False  # stage 2 chooses among the lossy representations
+        if not arms.any():
+            arms = feasible if feasible.any() else np.ones_like(feasible)  # send something
+        if self.rng.random() < self.epsilon:
+            return send_anyway(int(self.rng.choice(np.flatnonzero(arms))), win.safe)
+        best = arms & (self._q >= self._q[arms].max())
+        return send_anyway(int(np.where(best, cost, np.inf).argmin()), win.safe)
+
+    def observe(self, rep: int, disagreed: bool) -> None:
+        self._q[rep] += self.step * (float(not disagreed) - self._q[rep])
+
+
+@dataclass
 class ConformalModelSelection:
     """B11, in the style of Kalør & Ohtsuki 2025: state-aware choice among configurations whose
     *marginal* risk is certified offline. No per-window sufficiency predictor."""

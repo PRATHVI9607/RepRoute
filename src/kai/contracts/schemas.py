@@ -77,7 +77,7 @@ class Prices(_Frozen):
 
 
 class EnergyModel(_Frozen):
-    """P = p_idle_w + p_cpu_w·util on the edge CPU, plus e_bit_j per transmitted bit."""
+    """Edge energy: p_cpu_w × edge CPU time + e_bit_j per transmitted bit (idle power excluded)."""
 
     p_cpu_w: float = Field(ge=0)
     e_bit_j: float = Field(ge=0)

@@ -41,7 +41,8 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict]:
         cli.synth(seed=0, bearings_per_class=10, windows_per_condition=8)
         cli.folds(
             repeats=1, folds=2, level="L1", seed=0, epochs_raw=25, epochs_latent=12, f_raw="spec",
-            head_trials=3, device="cpu", force=False, overrides=["dataset=synthetic"],
+            head_trials=3, bottleneck="generic", device="cpu", force=False,
+            overrides=["dataset=synthetic"],
         )  # fmt: skip
         cfg = load_config(OVERRIDES)
         out = {
@@ -51,6 +52,7 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict]:
             "e5": ex.e5_ablation(cfg),
             "e6": ex.e6_drift(cfg),
             "e8": ex.e8_overhead(cfg, n=300),
+            "e10": ex.e10_privacy(cfg),
             "e7": ex.e7_sim2real(cfg, n_windows=40),
             "e4": ex.e4_phase(cfg, n_windows=6, grid_points=5, loads=(0.0,)),
             "e2_again": ex.e2_certificate(cfg),
@@ -70,10 +72,10 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict]:
 
 def test_every_stage_ran_and_left_its_artifacts(results: dict) -> None:
     work = Path(results["_work"]["path"])
-    for name in ("e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"):
+    for name in ("e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e10"):
         assert (work / "experiments" / name / "summary.json").exists(), name
     registry = pd.read_parquet(work / "experiments" / "registry.parquet")
-    assert set(registry.experiment) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"}
+    assert set(registry.experiment) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e10"}
     assert registry.lock_hash.nunique() == 1
     assert registry.config_hash.nunique() == 1
     assert (work / "artifacts" / "profiles" / "local.json").exists()
@@ -106,7 +108,7 @@ def test_e2_reports_every_variant_and_respects_ordering(results: dict) -> None:
 def test_e3_compares_every_policy_and_orders_them_sanely(results: dict) -> None:
     work = Path(results["_work"]["path"])
     frame = pd.read_parquet(work / "experiments" / "e3" / "results.parquet")
-    assert frame.policy.nunique() == 15
+    assert frame.policy.nunique() == 19
     assert frame.fold.nunique() == 2
     by = frame.groupby("policy")
     assert by.risk_sent.mean()["b1_raw"] == 0  # raw never disagrees with itself
@@ -139,6 +141,17 @@ def test_real_socket_experiments_produce_measurements(results: dict) -> None:
     assert e8["s1_greedy_safe/decisions_per_s"] > 1000
     assert e8["s2_mpc_h3/decisions_per_s"] > 100
     assert results["e6"]["L1/n_folds"] == 2
+
+
+def test_privacy_probe_scores_every_feature_payload(results: dict) -> None:
+    e10 = results["e10"]
+    reps = {k.split("/")[0] for k in e10 if "/" in k}
+    assert reps == {"r0_raw", "r3_spectral", "r4_summary", "r5_ae", "r6_bottleneck", "r7_vq"}
+    for rep in reps:
+        assert 0 <= e10[f"{rep}/condition_accuracy"] <= 1
+        assert 0 <= e10[f"{rep}/reid_accuracy"] <= 1
+    # the fixture gives every bearing its own resonance and gain: a spectrum re-identifies it
+    assert e10["r0_raw/reid_accuracy"] > 2 * e10["r0_raw/reid_chance"]
 
 
 def test_same_seed_and_config_reproduce_identical_results(results: dict) -> None:

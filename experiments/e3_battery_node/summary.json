@@ -1,0 +1,48 @@
+{
+ "n_folds": 5,
+ "n_cells": 1296,
+ "H1/reps_dominant_in_10pct_of_cells": 1,
+ "H1/b4_extra_cost_vs_oracle": -0.3769472908462336,
+ "H3/cost_reduction_vs_b4": -0.9548128199879071,
+ "H3/cost_reduction_vs_b4_ci_lo": -1.179651002276383,
+ "H3/cost_reduction_vs_b4_ci_hi": -0.7745573563694323,
+ "H3/cost_geo_ratio_vs_b4": 4.4508113956370465,
+ "H3/slo_reduction_vs_b5_bursty": 0.3108998413429753,
+ "H3/slo_reduction_vs_b5_ci_lo": 0.2852300798105312,
+ "H3/slo_reduction_vs_b5_ci_hi": 0.34211976705102565,
+ "oracle_dominant_share": {
+  "r4_summary": 0.9843,
+  "r6_bottleneck": 0.0106,
+  "r7_vq": 0.0005
+ },
+ "H1_pass": false,
+ "H3_pass": false,
+ "per_fold": {
+  "H3_cost": [
+   -0.7435882301198613,
+   -1.1525361224193116,
+   -0.7952034405358133,
+   -0.794069611549036,
+   -1.2886666953155137
+  ],
+  "H3_slo": [
+   0.33270562171143725,
+   0.296523885775287,
+   0.2662719575107203,
+   0.29854129912796423,
+   0.36045644258946796
+  ],
+  "H1_cost": [
+   -0.5672234624956214,
+   -0.41032100073413647,
+   -0.6129563780758398,
+   -0.6953804117120432,
+   -0.7391219714944999
+  ]
+ },
+ "price_preset": "battery_node",
+ "x/kai_s1_v0_static/cost_reduction_vs_b4": -0.40016467892737184,
+ "x/kai_s1_v0_static/probe_rate": NaN,
+ "x/kai_s1_cascade/cost_reduction_vs_b4": -0.5593558853637022,
+ "x/kai_s1_cascade/probe_rate": 0.10841550925925926
+}

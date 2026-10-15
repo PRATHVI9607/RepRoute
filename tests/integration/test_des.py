@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -161,6 +163,39 @@ def test_audit_ships_raw_copies_and_feeds_aci() -> None:
     assert aci.alpha_t != 0.05  # the certifier received feedback
 
 
+def test_aci_leaves_raw_only_again_because_raw_decisions_count_as_agreements() -> None:
+    work = toy_workload(np.random.default_rng(8), 20000)
+    work.d[:, 1:] = True  # every non-raw representation disagrees: the first audits hit hard
+    aci = AdaptiveLambda(np.random.default_rng(0).random(2000) * 0.2, alpha=0.05, gamma=0.05)
+    sc = Scenario(tr.static(5e6), deadline_ms=200, p_audit=0.2, seed=3)
+    res = simulate(sc, work, GreedySafe(MODEL), Certifier(lam=0.0, aci=aci), MODEL)
+    non_raw = np.flatnonzero(res.rep > 0)
+    assert (res.rep == 0).mean() > 0.3  # it does retreat to raw
+    # ... but not for ever: audited raw decisions are agreements and raise the working level again
+    assert non_raw.max() > 0.9 * len(res.rep)
+
+
+def test_learning_baseline_hears_about_audited_decisions() -> None:
+    from kai.select import baselines as bl
+
+    work = toy_workload(np.random.default_rng(8), 3000)
+    work.d[:, 4] = True  # the cheapest arm always disagrees with the raw decision
+    bandit = bl.AdaEdgeBandit(MODEL, lossless=1, rng=np.random.default_rng(0))
+    sc = Scenario(tr.static(64e3), deadline_ms=100, p_audit=0.05, seed=3)
+    res = simulate(sc, work, bandit, CERT, MODEL)
+    assert res.audited.sum() > 50
+    assert bandit._q[4] <= 0.5  # learnt from the audits ...
+    assert (res.rep[-1000:] == 4).mean() < 0.1  # ... and stopped sending it
+    silent = simulate(
+        replace(sc, p_audit=0.0),
+        work,
+        bl.AdaEdgeBandit(MODEL, 1, np.random.default_rng(0)),
+        CERT,
+        MODEL,
+    )
+    assert (silent.rep[-1000:] == 4).mean() > 0.9  # without audits it never finds out
+
+
 def test_drift_monitor_forces_raw_only() -> None:
     rng = np.random.default_rng(9)
     work = toy_workload(rng, 1200)
@@ -199,3 +234,43 @@ def test_a_frame_nearly_off_the_wire_does_not_block_the_next_window() -> None:
     res = simulate(sc, work, GreedySafe(MODEL), Certifier(lam=RAW_ONLY), MODEL)
     assert res.flag_rate("certified") == 1.0
     assert res.late.mean() == 0.0
+
+
+def test_run_metrics_are_consistent_with_the_simulation() -> None:
+    from kai.bench import evaluate as ev
+
+    work = toy_workload(np.random.default_rng(4), 800)
+    cell = ev.Cell("static", 64e3, 100.0, 0.5, 8, 0.05)
+    sc = Scenario(tr.static(64e3), deadline_ms=100, load=0.5, n_sensors=8, seed=1)
+    res = simulate(sc, work, GreedySafe(MODEL), CERT, MODEL)
+    m = ev.metrics(res, cell, MODEL)
+    shares = sum(v for k, v in m.items() if k.startswith("share/"))
+    assert shares + np.mean(res.rep < 0) == pytest.approx(1.0)  # every window is accounted for
+    assert sum(m[f"rate_{f}"] for f in FLAGS) == pytest.approx(1.0)
+    assert m["risk_certified_joint"] <= m["risk_all"] + 1e-12
+    assert m["bytes"] == pytest.approx(res.wire_bytes.mean())
+    capped = ev.metrics(res, cell, MODEL, late_cap_factor=20.0)
+    assert capped["cost"] >= m["cost"]  # a larger cap on undelivered windows never costs less
+
+
+def test_cascade_pays_for_the_probe_only_on_the_windows_where_it_runs() -> None:
+    from kai.select.policies import CascadeSafe
+
+    work = toy_workload(np.random.default_rng(5), 600)
+    fast = Scenario(tr.static(5e6), deadline_ms=200, seed=2)
+    # the 16-byte latent is free for every window: nothing outside the free set can beat it
+    latent_free = Certifier(0.05, prior=np.array([0.0, 0.0, 0.03, 0.2, 0.01]))
+    res = simulate(fast, work, CascadeSafe(MODEL), latent_free, MODEL)
+    assert not res.probed.any()
+    assert (res.rep == 4).all()
+    greedy = simulate(fast, work, GreedySafe(MODEL), latent_free, MODEL)
+    assert np.allclose(
+        greedy.edge_ms - res.edge_ms, MODEL.overheads.t_probe_ms + MODEL.overheads.t_pred_ms
+    )
+    # only the waveform codecs are free: the compact representations are worth the probe
+    waveform_free = Certifier(0.05, prior=np.array([0.0, 0.0, 0.03, 0.2, 0.4]))
+    res = simulate(fast, work, CascadeSafe(MODEL), waveform_free, MODEL)
+    assert res.probed.all()
+    assert np.array_equal(
+        res.rep, simulate(fast, work, GreedySafe(MODEL), waveform_free, MODEL).rep
+    )

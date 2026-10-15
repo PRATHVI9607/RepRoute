@@ -111,5 +111,66 @@ def test_holm_and_one_sided_tests() -> None:
     v = np.array([0.31, 0.28, 0.35, 0.30, 0.33])
     assert stats.one_sided_p(v, 0.2) < 0.01
     assert stats.one_sided_p(v, 0.2, greater=False) > 0.99
-    assert stats.one_sided_p(np.array([0.5, 0.5]), 0.2) == 0.0
+    assert stats.one_sided_p(np.array([0.5, 0.5]), 0.2) == 1.0  # no spread is no evidence
     assert stats.one_sided_p(np.array([0.1]), 0.2) == 1.0
+
+
+def test_grid_helpers_ignore_cells_and_folds_that_carry_no_information() -> None:
+    import pandas as pd
+
+    from kai.bench.experiments import CELL_KEYS, dominant_rep, reduction
+
+    cell = dict.fromkeys(CELL_KEYS, 0.0)
+    rows = [
+        {
+            "fold": "a",
+            **cell,
+            "policy": "oracle",
+            "share/r0_raw": 0.0,
+            "share/r6": 0.0,
+        },  # all deferred
+        {"fold": "b", **cell, "policy": "oracle", "share/r0_raw": 0.1, "share/r6": 0.9},
+    ]
+    main = dominant_rep(pd.DataFrame(rows), "oracle")
+    assert main.tolist() == ["none", "r6"]  # the empty cell is not counted as a raw choice
+    frame = pd.DataFrame(
+        [
+            {"fold": f, **cell, "policy": p, "cost": c}
+            for f, p, c in [("a", "ours", 1.0), ("a", "theirs", 0.0), ("b", "ours", 1.0),
+                            ("b", "theirs", 2.0), ("c", "ours", 3.0), ("c", "theirs", 4.0)]
+        ]
+    )  # fmt: skip
+    out = reduction(frame, "ours", "theirs", np.random.default_rng(0))
+    assert out["per_fold"] == pytest.approx([0.5, 0.25])  # fold a has nothing to reduce
+
+
+def test_stored_grid_results_are_reused_and_extended_with_new_policies(
+    tmp_path, monkeypatch
+) -> None:
+    import pandas as pd
+    from omegaconf import OmegaConf
+
+    from kai.bench.experiments import out_dir, stored_or_run
+
+    monkeypatch.setenv("KAI_WORK", str(tmp_path))
+    pd.DataFrame({"policy": ["a", "b"], "cost": [1.0, 2.0]}).to_parquet(
+        out_dir("e3") / "results.parquet"
+    )
+    calls = []
+
+    def run(only: tuple[str, ...]) -> pd.DataFrame:
+        calls.append(only)
+        return pd.DataFrame({"policy": ["b"], "cost": [5.0]})
+
+    fresh = stored_or_run(OmegaConf.create({"reuse": False}), "e3", run)
+    assert calls == [()]  # without reuse everything is simulated
+    assert fresh.cost.tolist() == [5.0]
+    same = stored_or_run(OmegaConf.create({"reuse": True, "add_policies": []}), "e3", run)
+    assert sorted(same.policy) == ["a", "b"]
+    assert len(calls) == 1  # nothing simulated
+    merged = stored_or_run(OmegaConf.create({"reuse": True, "add_policies": ["b"]}), "e3", run)
+    assert calls[-1] == ("b",)  # only the new policy is simulated ...
+    assert dict(zip(merged.policy, merged.cost, strict=True)) == {
+        "a": 1.0,
+        "b": 5.0,
+    }  # ... and replaces its rows

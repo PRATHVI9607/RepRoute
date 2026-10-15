@@ -1,11 +1,18 @@
-"""Collect `experiments/*/summary.json` into `docs/research/results.md` (no hand-copied numbers)."""
+"""Collect `experiments/*/summary.json` into `docs/research/results.md` (no hand-copied numbers).
+
+A transfer run reports into its own file:
+
+    KAI_WORK=transfer/hust python scripts/report.py --out docs/research/results-hust.md --dataset HUST
+"""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import typer
 
 from kai.analysis import stats
 from kai.bench.config import ROOT, work
@@ -28,13 +35,84 @@ def table(frame: pd.DataFrame, fmt: str = "{:.3g}") -> str:
     return "\n".join([head, rule, *rows])
 
 
-def verdict(passed: bool | None) -> str:
-    return "not run" if passed is None else ("**supported**" if passed else "**not supported**")
+FAMILY = ("H1", "H2a", "H2b", "H3", "H4", "H5", "H6", "H7")  # the Holm family (hypotheses.md)
+_tested: dict[
+    str, bool | None
+] = {}  # hypotheses with a per-fold test: verdict filled in after Holm
 
 
-def main() -> None:
-    e = {n: load(n) for n in ("e1", "e2", "e3", "e4", "e5", "e5_pi_class", "e6", "e7", "e7d", "e8")}
-    lines = ["# Results", ""]
+def verdict(passed: bool | None, tested: str | None = None) -> str:
+    """Verdict text. A hypothesis with a per-fold test gets a placeholder resolved after Holm."""
+    if tested is not None:
+        _tested[tested] = passed
+        return f"@@{tested}@@"
+    if passed is None:
+        return "not run"
+    return "threshold met (descriptive, no test over folds)" if passed else "**not supported**"
+
+
+def resolve_verdicts(text: str, adj: dict[str, tuple[float, bool]]) -> str:
+    for key, passed in _tested.items():
+        if passed is None:
+            word = "not run"
+        elif not passed:
+            word = "**not supported**"
+        elif adj[key][1]:
+            word = "**supported**"
+        else:
+            word = f"threshold met, **not significant** (Holm-adjusted p = {adj[key][0]:.2f})"
+        text = text.replace(f"@@{key}@@", word)
+    return text
+
+
+def seed_variance() -> pd.DataFrame | None:
+    """Disagreement per representation across training seeds of repeat 0, if several were trained."""
+    rows = []
+    for path in (work() / "artifacts" / "folds").glob("*/s*_r0f*/metrics.json"):
+        m = json.loads(path.read_text())
+        seed = int(path.parent.name.split("_")[0][1:])
+        rows += [
+            {"split": path.parent.parent.name, "seed": seed, "rep": k.rsplit("/", 1)[1], "d": v}
+            for k, v in m.items()
+            if k.startswith("disagreement/test/")
+        ]
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return None
+    l1 = {p.stem.rsplit("_", 1)[1] for p in (work() / "data" / "splits").glob("*_L1_*.json")}
+    frame = frame[frame.split.isin(l1)]
+    if frame.seed.nunique() < 2:
+        return None
+    per_seed = frame.groupby(["rep", "seed"], sort=False).d.mean().unstack()
+    return pd.DataFrame(
+        {
+            "representation": per_seed.index,
+            "seeds": per_seed.shape[1],
+            "mean disagreement": per_seed.mean(axis=1).to_numpy(),
+            "sd over seeds": per_seed.std(axis=1).to_numpy(),
+            "sd over folds (seed 0)": frame[frame.seed == 0]
+            .groupby("rep", sort=False)
+            .d.std()
+            .to_numpy(),
+        }
+    )
+
+
+def window_period_ms() -> float:
+    """The window period the profile was measured at (64 ms for the Paderborn windows)."""
+    profile = work() / "artifacts" / "profiles" / "local.json"
+    if not profile.exists():
+        return float("nan")
+    return float(json.loads(profile.read_text())["timing"]["duty_cycle_period_ms"])
+
+
+def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
+    e = {
+        n: load(n)
+        for n in ("e1", "e2", "e3", "e4", "e5", "e5_pi_class", "e6", "e7", "e7d", "e8", "e10")
+    }
+    title = "# Results" if dataset == "Paderborn" else f"# Results — {dataset} (transfer run)"
+    lines = [title, ""]
     registry = work() / "experiments" / "registry.parquet"
     if registry.exists():
         reg = pd.read_parquet(registry)
@@ -44,7 +122,7 @@ def main() -> None:
             f"Last run: git `{last.git_sha[:10]}`{' (uncommitted tree)' if last.git_dirty else ''}, "
             f"lockfile `{last.lock_hash[:10]}`, {last.created_utc}.",
             "",
-            "Everything below is the **Paderborn 3-class task with leave-bearings-out (L1) folds**, the "
+            f"Everything below is the **{dataset} 3-class task with leave-bearings-out (L1) folds**, the "
             "`metered_cellular` preset unless stated, timings from the development laptop, energy "
             "modelled. Read `docs/research/hypotheses.md` for the pre-registered definitions and "
             "`docs/theory/limitations.md` before quoting any number.",
@@ -61,11 +139,37 @@ def main() -> None:
             "",
             f"- Folds: **{s['n_folds']}**. Representations profiled: **{s['n_reps_profiled']}**.",
             f"- Reference model `f_raw`, bearing-wise test macro-F1: **{s['f_raw_macro_f1']:.3f}** "
-            f"(majority baseline {s['majority_macro_f1']:.3f}; threshold fixed in ADR 0004: 0.40) → "
+            f"(majority baseline {s['majority_macro_f1']:.3f}; threshold fixed in ADR 0004: 0.40; "
+            f"`f_raw = {s.get('f_raw', '?')}`, R6 encoder `{s.get('bottleneck', '?')}`) → "
             f"G1 label-fidelity criterion {'**met**' if gate else '**not met**'}.",
             f"- Per-window overhead: probe {s['t_probe_ms']:.3f} ms + predictor {s['t_pred_ms']:.3f} ms + "
             f"selector {s['t_sel_ms']:.3f} ms.",
             f"- Mean fitted load exponent γ: {s['mean_load_exponent']:.2f} (1.0 = processor sharing).",
+            *(
+                [
+                    "- The same work at the duty cycle of a busier node (one window every period / sensors; "
+                    "ADR 0008) — probe + predictor + selector, and the R6 encoder: "
+                    + "; ".join(
+                        f"{k.rsplit('sensors', 1)[1]} sensors: {v:.2f} ms and "
+                        f"{next(v2 for k2, v2 in s.items() if k2.startswith('t_enc_ms/') and k2.endswith('/' + k.rsplit('/', 1)[1])):.2f} ms"
+                        for k, v in s.items()
+                        if k.startswith("overhead_ms/sensors")
+                    )
+                    + ".",
+                    "- Runtime overhead per sent frame, calibrated on the real runtime: measured excess over the "
+                    f"model {s.get('io_excess_ms/load0', float('nan')):+.2f} ms at load 0 and "
+                    f"{s.get('io_excess_ms/load0.8', float('nan')):+.2f} ms at load 0.8, used as "
+                    f"{s['t_io_ms']:.2f} ms × (1 − ρ)^−{s['io_load_exponent']:.2f}"
+                    + (" (the load-0 value is the 0.05 ms floor)" if s["t_io_ms"] <= 0.05 else "")
+                    + ".",
+                ]
+                if "t_io_ms" in s
+                else []
+            ),
+            f"- Edge inference for comparison: running the whole reference model takes {prof.t_head_ms[0]:.2f} ms "
+            "(the cloud-side head time of raw, measured on this machine) and would send 1 byte; the R6 encoder "
+            f"takes {prof.set_index('rep_id').t_enc_ms.get('r6_bottleneck', float('nan')):.2f} ms and sends "
+            f"{prof.set_index('rep_id').size_mean_bytes.get('r6_bottleneck', float('nan')):.0f} bytes.",
             "",
             table(
                 prof[
@@ -75,6 +179,20 @@ def main() -> None:
             ),
             "",
         ]  # fmt: skip
+
+    seed_rows = seed_variance()
+    if seed_rows is not None:
+        lines += [
+            "### Training-seed variance (repeat 0)",
+            "",
+            "The same five folds trained with different seeds. The reference model is a deterministic fit, so "
+            "its column does not move; the seed changes the learned encoders and the head search. Mean over "
+            "folds per seed, then mean and standard deviation over seeds, of the disagreement with the raw "
+            "decision on test bearings:",
+            "",
+            table(seed_rows),
+            "",
+        ]
 
     if e["e2"]:
         s = e["e2"]
@@ -99,12 +217,13 @@ def main() -> None:
         lines += [
             "## Certificate validity (E2)",
             "",
-            f"- **H2a** (V0, expected risk ≤ α on held-out bearings): {verdict(s['H2a_pass'])}.",
+            f"- **H2a** (V0, expected risk ≤ α on held-out bearings): {verdict(s['H2a_pass'], 'H2a')}.",
             f"- **H2b** (V1, ≥ 90 % of folds within α): {verdict(s['H2b_pass'])}.",
             "- Risk is the safe-set loss (worst admissible policy) for V0 / V1, and the greedy policy's "
             "loss for V2, which only promises that policy.",
-            "- Exchangeability control (V0 calibrated on half of the calibration windows, tested on the other "
-            "half — same bearings, so the theorem's premise holds; a diagnostic, not a generalisation result): "
+            "- Exchangeability control (V0 calibrated on a random half of the calibration windows and tested on the "
+            "other half, mean of 20 halvings — exchangeable by construction, so the theorem's premise holds; "
+            "a diagnostic, not a generalisation result): "
             + ", ".join(
                 f"α = {a:g} → {s[f'control/a{a:g}/risk_same_bearings']:.3f}"
                 for a in sorted(res.alpha.unique())
@@ -121,7 +240,12 @@ def main() -> None:
             "cost_total_per_fold"
         )
         pf = s["per_fold"]
-        pvalues["H1"] = stats.one_sided_p(1 / (1 - np.array(pf["H1_cost"])) - 1, 0.25)
+        # H1 has two parts; the count of dominant representations has no test, so it gates the p
+        pvalues["H1"] = (
+            stats.one_sided_p(1 / (1 - np.array(pf["H1_cost"])) - 1, 0.25)
+            if s["H1/reps_dominant_in_10pct_of_cells"] >= 3
+            else 1.0
+        )
         pvalues["H3"] = max(
             stats.one_sided_p(np.array(pf["H3_cost"]), 0.20),
             stats.one_sided_p(np.array(pf["H3_slo"]), 0.30),
@@ -129,41 +253,132 @@ def main() -> None:
         lines += [
             "## Main comparison over the scenario grid (E3)",
             "",
-            f"{s['n_folds']} folds × {s['n_cells']} cells × 15 policies.",
+            f"{s['n_folds']} folds × {s['n_cells']} cells × {len(by)} policies.",
             "",
-            f"- **H1** diversity: {verdict(s['H1_pass'])}. Representations that are the oracle's main choice "
+            f"- **H1** diversity: {verdict(s['H1_pass'], 'H1')}. Representations that are the oracle's main choice "
             f"in ≥ 10 % of cells: **{s['H1/reps_dominant_in_10pct_of_cells']}** (need ≥ 3); best-single costs "
             f"**{s['H1/b4_extra_cost_vs_oracle']:+.1%}** more than the oracle (need ≥ +25 %).",
-            f"  Oracle's main choice by share of cells: {s['oracle_dominant_share']}.",
-            f"- **H3** adaptation value: {verdict(s['H3_pass'])}. Kai (S1, V0) total cost versus best-single: "
+            f"  Oracle's main choice by share of cells: {s['oracle_dominant_share']}."
+            + (
+                " A negative figure means best-single is the cheaper one: the oracle never sends a "
+                "representation that disagrees, so it pays for raw or wavelet frames on the windows where the "
+                "cheapest representation is wrong, and best-single does not."
+                if s["H1/b4_extra_cost_vs_oracle"] < 0
+                else ""
+            ),
+            f"- **H3** adaptation value: {verdict(s['H3_pass'], 'H3')}. Kai (S1, V0) total cost versus best-single: "
             f"**{s['H3/cost_reduction_vs_b4']:+.1%}** reduction, 95 % CI [{s['H3/cost_reduction_vs_b4_ci_lo']:+.1%}, "
             f"{s['H3/cost_reduction_vs_b4_ci_hi']:+.1%}] (need ≥ +20 %); SLO violations versus context-blind on "
             f"bursty traces: **{s['H3/slo_reduction_vs_b5_bursty']:+.1%}** reduction, CI "
             f"[{s['H3/slo_reduction_vs_b5_ci_lo']:+.1%}, {s['H3/slo_reduction_vs_b5_ci_hi']:+.1%}] (need ≥ +30 %).",
             f"  Geometric-mean per-cell cost ratio Kai / best-single: {s['H3/cost_geo_ratio_vs_b4']:.3f}.",
             "",
-            "Means over all cells and folds (cost in bytes-equivalent; `risk_sent` = disagreement of what was "
-            "actually transmitted, which for baselines is **not** bounded by α):",
+            "Means over all cells, folds and the three α levels (cost in bytes-equivalent). "
+            "`risk_certified_joint` = disagreeing *and* certified, per offered window: the quantity Proposition 1 "
+            "bounds, for Kai with V0 / V1 only. `risk_certified` = disagreement among certified decisions, which "
+            "divides by the certified rate and is not bounded. `risk_sent` = disagreement of whatever was "
+            "transmitted. Baselines carry no certificate; `kai_s1_v2` is calibrated for the nominal state only "
+            "and is exploratory here (docs/theory/proposition1.md). `kai_s1_cascade` is V0 on the score min(ĝ, prior) "
+            "with a value-of-information gate on the probe (ADR 0011, exploratory). `kai_s1_v0_static` is V0 with constant "
+            "scores — one safe set for every window, no probe or predictor on the edge — added after the "
+            "first results and exploratory (ADR 0008). The pooled risks are comparable to no single "
+            "α: the table after this one splits them.",
             "",
             table(
-                by[["policy", "cost_total_per_fold", "bytes", "slo_violation", "risk_certified", "risk_sent",
-                    "rate_certified", "rate_deferred", "rate_uncertified", "latency_p50_ms"]]
+                by[["policy", "cost_total_per_fold", "bytes", "slo_violation", "risk_certified_joint",
+                    "risk_certified", "risk_sent", "rate_certified", "rate_deferred", "rate_uncertified",
+                    "latency_p50_ms"]]
             ),
             "",
         ]  # fmt: skip
 
         grid = pd.read_parquet(work() / "experiments" / "e3" / "results.parquet")
-        focus = ["oracle", "kai_s1_v0", "kai_s1_v2", "kai_s1_v0_live", "b4_best_single"]
+        kai = [
+            "kai_s1_v0",
+            "kai_s1_cascade",
+            "kai_s1_v0_static",
+            "kai_s1_v1",
+            "kai_s1_v1_per_rep",
+            "kai_s2_v0",
+            "kai_s1_v2",
+        ]
+        kai = [p for p in kai if p in set(grid.policy)]
+        by_alpha = grid[grid.policy.isin(kai)].pivot_table(
+            index="alpha", columns="policy", values="risk_certified_joint"
+        )
+        lines += [
+            "Certified-and-disagreeing rate per offered window, by α (mean over cells and folds):",
+            "",
+            table(by_alpha[kai].reset_index()),
+            "",
+        ]
+        focus = [
+            "oracle",
+            "kai_s1_v0",
+            "kai_s1_cascade",
+            "kai_s1_v0_static",
+            "kai_s1_v2",
+            "kai_s1_v0_live",
+            "b4_best_single",
+        ]
+        focus = [p for p in focus if p in set(grid.policy)]
         by_n = grid[grid.policy.isin(focus)].pivot_table(
             index="n_sensors", columns="policy", values="cost"
         )
         by_n = by_n[focus].assign(kai_vs_best_single=lambda t: t.kai_s1_v0 / t.b4_best_single - 1)
         lines += [
-            "Exploratory breakdown, not pre-registered — mean cost per window by sensors per edge node. "
-            "With 32 sensors a window arrives every 2 ms, less than the per-window probe + predictor time, "
-            "so the edge CPU saturates for every policy that needs the safe set:",
+            "Exploratory breakdown, not pre-registered — mean cost per window by sensors per edge node "
+            "(timings at each node's duty cycle, ADR 0008; with 32 sensors a window arrives every "
+            f"{window_period_ms() / 32:.1f} ms):",
             "",
             table(by_n.reset_index()),
+            "",
+        ]
+        small = grid[(grid.n_sensors < 32) & (grid.link == "static")]
+        by_bw = small[small.policy.isin(["kai_s1_v0", "b4_best_single"])].pivot_table(
+            index="bandwidth_bps", columns="policy", values=["cost", "rate_deferred"]
+        )
+        by_bw.columns = [f"{metric} {policy}" for metric, policy in by_bw.columns]
+        lines += [
+            "Exploratory — where Kai (V0) loses to best-single below 32 sensors: static links, mean over α, "
+            "deadlines, loads and folds; `rate_deferred` is the share of windows Kai held back because "
+            "nothing in their safe set fitted the link:",
+            "",
+            table(by_bw.reset_index()),
+            "",
+        ]
+
+    presets = sorted((work() / "experiments").glob("e3_*/summary.json"))
+    if presets and e["e3"]:
+        rows = []
+        for path in [work() / "experiments" / "e3" / "summary.json", *presets]:
+            s = json.loads(path.read_text())
+            rows.append(
+                {
+                    "price preset": s.get("price_preset", "metered_cellular"),
+                    "folds": s["n_folds"],
+                    "oracle's dominant representations (≥ 10 % of cells)": s[
+                        "H1/reps_dominant_in_10pct_of_cells"
+                    ],
+                    "oracle's main choices": ", ".join(
+                        f"{k} {v:.0%}" for k, v in s["oracle_dominant_share"].items()
+                    ),
+                    "best-single cost over oracle": s["H1/b4_extra_cost_vs_oracle"],
+                    "Kai (V0) cost reduction vs best-single": s["H3/cost_reduction_vs_b4"],
+                    "cascade vs best-single": s.get(
+                        "x/kai_s1_cascade/cost_reduction_vs_b4", float("nan")
+                    ),
+                    "cascade probe rate": s.get("x/kai_s1_cascade/probe_rate", float("nan")),
+                }
+            )
+        lines += [
+            "### The same comparison under the other price presets (exploratory)",
+            "",
+            "H1 and H3 are registered on the `metered_cellular` preset. The other presets price energy, "
+            "edge CPU time or lateness instead of bytes; they are reported to show whether the answer "
+            "depends on what is priced.",
+            "",
+            table(pd.DataFrame(rows)),
             "",
         ]
 
@@ -191,7 +406,7 @@ def main() -> None:
             f"- **H4** encode cost matters: {verdict(s['H4_pass'])}. Main choice changed in "
             f"**{s['H4/choice_changed_in_high_load_cells']:.1%}** of ρ = 0.8 cells (need ≥ 15 %); SLO violation "
             f"{s['H4/slo_with_encode_cost']:.3f} with encode cost vs {s['H4/slo_ignoring_encode_cost']:.3f} ignoring it.",
-            f"- **H5** heterogeneity pays: {verdict(s['H5_pass'])}. Full menu versus the best single family: "
+            f"- **H5** heterogeneity pays: {verdict(s['H5_pass'], 'H5' if name == 'e5' else None)}. Full menu versus the best single family: "
             f"**{s['H5/cost_reduction_vs_best_family']:+.1%}** cost reduction, CI [{s['H5/ci_lo']:+.1%}, {s['H5/ci_hi']:+.1%}] "
             "(need ≥ +10 %).",
             "",
@@ -214,7 +429,13 @@ def main() -> None:
             "## Phase diagram: theory versus measurement (E4)",
             "",
             f"- **H6**: {verdict(s['H6_pass'])}. Over the full menu the closed form predicts {s['n_boundaries_theory']} boundaries; {s['n_boundaries_measured']} argmin changes were measured and {s['n_boundaries_matched']} match a predicted one (worst relative error {pct(s['max_rel_error'])}; need ≥ 1 match within 20 %).",
-            "- Why: on this hardware the compact representations (R4–R7) are both the smallest and the fastest end to end, and their latencies differ by less than the measurement noise, so the measured argmin flips among them and there is no break-even bandwidth to test.",
+            *(
+                []
+                if s["H6_pass"]
+                else [
+                    "- Why it fails here: the compact representations are both the smallest and among the fastest end to end, and their latencies differ by less than the measurement noise, so the measured argmin flips among them and few break-even bandwidths exist to test."
+                ]
+            ),
             f"- Exploratory, not part of H6 — the same test inside the waveform-preserving family (raw, lossless, wavelets), where a break-even exists: {s['family/n_theory']} predicted, {s['family/n_measured']} measured, {s['family/n_matched']} matched, worst relative error {pct(s['family/max_rel_error'])}.",
             f"- Latency model versus measured latency: median absolute error {s['median_latency_model_error']:.1%}; mean signed error {bias} (positive = reality slower than the model).",
             "- Measured on real sockets with token-bucket pacing, on the same laptop as the profile.",
@@ -261,15 +482,22 @@ def main() -> None:
         ]
         for lv in levels:
             lines.append(
-                f"- **{lv}** ({int(s[f'{lv}/n_folds'])} folds): realised policy risk {s[f'{lv}/policy_risk_static']:.3f} with the static threshold, "
+                f"- **{lv}** ({int(s[f'{lv}/n_folds'])} folds): safe-set risk (worst admissible policy) {s[f'{lv}/safe_set_risk_static']:.3f} with the static threshold; "
+                f"realised risk of the greedy policy {s[f'{lv}/policy_risk_static']:.3f} with the static threshold, "
                 f"{s[f'{lv}/policy_risk_aci']:.3f} with audit-in-the-loop ACI, at {s[f'{lv}/bytes_aci'] / s[f'{lv}/bytes_static'] - 1:+.0%} bytes "
-                f"(audit copies: {s[f'{lv}/audit_bytes']:.0f} B per window). The cloud's own estimate from audited decisions: {s[f'{lv}/risk_audit_estimate']:.3f}. "
+                f"(audit copies: {s[f'{lv}/audit_bytes']:.0f} B per window). The cloud's own estimate from audited decisions, per offered window: {s[f'{lv}/risk_audit_estimate']:.3f}. "
                 f"The drift monitor is raised on {s[f'{lv}/drift_fired']:.0%} of test windows."
             )
         lines += [
-            "- The probe-feature drift monitor fires almost everywhere even without a condition shift: it detects that the test "
-            "bearings differ from the calibration bearings, which is true, but as a safe-mode trigger it would switch the "
-            "system to raw-only on every new machine. It needs a per-machine reference before it is useful.",
+            *(
+                [
+                    "- The probe-feature drift monitor is up on most test windows even without a condition shift: it "
+                    "detects that the test bearings differ from the calibration bearings. As a safe-mode trigger it "
+                    "would switch the system to raw-only on every new machine (ADR 0008 §5)."
+                ]
+                if s.get("L1/drift_fired", 0.0) > 0.5
+                else []
+            ),
             "",
             table(pd.DataFrame(rows)),
             "",
@@ -297,24 +525,61 @@ def main() -> None:
             "",
         ]
 
+    if e["e10"]:
+        s = e["e10"]
+        reps = sorted(
+            {k.split("/")[0] for k in s if "/" in k}, key=lambda r: -s[f"{r}/payload_bytes"]
+        )
+        rows = [
+            {
+                "what the observer sees": "band-energy shape of the raw window"
+                if r == "r0_raw"
+                else r,
+                "bytes": s[f"{r}/payload_bytes"],
+                "operating condition, unseen machines": s[f"{r}/condition_accuracy"],
+                "re-identification of a seen machine": s[f"{r}/reid_accuracy"],
+            }
+            for r in reps
+        ]
+        lines += [
+            "## Privacy probe (E10, exploratory)",
+            "",
+            f"Accuracy of a logistic-regression attacker on what the cloud decodes, mean of {s['n_folds']} folds. "
+            f"Chance is {s['r0_raw/condition_chance']:.2f} for the operating condition (four conditions) and "
+            f"{s['r0_raw/reid_chance']:.2f} on average for re-identification among a fold's test bearings. "
+            "Re-identification is fitted and scored on windows of the same bearings by construction: it measures "
+            "the attack, it is not a diagnosis result. No hypothesis was registered for this probe.",
+            "",
+            table(pd.DataFrame(rows)),
+            "",
+            "A compact payload is not a private one: sending fewer bytes hides the waveform, not the machine's "
+            "identity or its operating point, unless the numbers above are at chance.",
+            "",
+        ]
+
+    # hypotheses without a replication unit enter the family with p = 1: they cannot be rejected
+    family = {h: pvalues.get(h, 1.0) for h in FAMILY}
+    adj = stats.holm(family)
     if pvalues:
-        adj = stats.holm(pvalues)
         lines += [
             "## Multiple testing",
             "",
-            "One-sided t-tests of each pre-registered threshold over folds, Holm–Bonferroni at 0.05. "
-            "H4, H6 and H7 have no replication unit in this pass and are descriptive.",
+            "One-sided t-tests of each pre-registered threshold over folds, Holm–Bonferroni at 0.05 across "
+            "all eight hypotheses. H2b, H4, H6 and H7 have no replication unit in this pass: they are "
+            "descriptive and enter the family with p = 1. A hypothesis is called *supported* only if its "
+            "threshold is met **and** Holm rejects the null.",
             "",
             table(
                 pd.DataFrame(
                     [
                         {
                             "hypothesis": h,
-                            "p (raw)": pvalues[h],
+                            "tested over folds": h in pvalues,
+                            "p (raw)": family[h],
                             "p (Holm)": adj[h][0],
                             "rejects the null": adj[h][1],
                         }
-                        for h in sorted(pvalues)
+                        for h in FAMILY
                     ]
                 )
             ),
@@ -344,18 +609,22 @@ def main() -> None:
             "## Run history",
             "",
             "Every run is kept in the registry; nothing is discarded. Experiments that were run more than "
-            "once changed for a stated reason (`docs/adr/0004-reference-model-and-heads.md`): the first E2 "
-            "run predates the exchangeability control; E2 / E3 / E5 / E7 were re-run after the timing "
+            "once changed for a stated reason. On 2026-10-10 (`docs/adr/0004-reference-model-and-heads.md`): the "
+            "first E2 run predates the exchangeability control; E2 / E3 / E5 / E7 were re-run after the timing "
             "profile was re-measured at the real duty cycle; and E3 / E5 were re-run once more after the "
             "simulator stopped charging Kai's probe and predictor to policies that do not run them. "
+            "On 2026-10-14 local time (rows from 2026-10-13 22:40 UTC on) everything was re-run with the new "
+            "reference model and R6 "
+            "(`docs/adr/0006-envelope-reference-model.md`) and the audit-loop fix "
+            "(`docs/adr/0007-certificate-review.md`); the rows before that date belong to the SpecNet folds. "
             "The sections above show the latest run.",
             "",
         ]
         for _, sub in hist.groupby("experiment"):
             lines += [table(sub.dropna(axis=1, how="all")), ""]
-    OUT.write_text("\n".join(lines))
-    print(OUT)
+    out.write_text(resolve_verdicts("\n".join(lines), adj))
+    print(out)
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

@@ -89,3 +89,50 @@ def test_harmonic_mean_estimator_is_conservative() -> None:
     for _ in range(3):
         est.add(2e6)
     assert est.bps == pytest.approx(2e6)  # old samples leave the window
+
+
+def test_measured_traces_are_picked_by_class_and_rescaled_to_the_cell_rate(
+    tmp_path, monkeypatch, rng: np.random.Generator
+) -> None:
+    from kai.bench import evaluate as ev
+
+    folder = tmp_path / "ucc4g"
+    folder.mkdir()
+    monkeypatch.setattr(ev, "MEASURED_DIR", folder)
+    for i in range(3):
+        np.savetxt(folder / f"car__log{i}.csv", rng.uniform(1e6, 9e6, 300), fmt="%.0f")
+    cell = ev.Cell("ucc4g_car", 256e3, 250.0, 0.0, 1, 0.05)
+    trace = ev.make_trace(cell, seed=0)
+    assert trace.step_s == 1.0
+    assert np.median(trace.bps) == pytest.approx(256e3)  # the shape is kept, the median moved
+    assert trace.name.startswith("car__")
+    assert ev.make_trace(cell, seed=0).name == trace.name  # the seed picks the log
+    with pytest.raises(FileNotFoundError, match="download_traces"):
+        ev.make_trace(ev.Cell("ucc4g_train", 256e3, 250.0, 0.0, 1, 0.05), seed=0)
+
+
+def test_bandwidth_estimate_survives_a_trace_that_starts_in_an_outage() -> None:
+    from kai.link.traces import HarmonicMeanEstimator
+
+    est = HarmonicMeanEstimator(0.0)
+    assert 0 < est.bps <= 1.0  # tiny but defined: the selector must still be able to plan
+    est.add(1e6)
+    assert est.bps > 1.0
+
+
+def test_workload_samples_every_bearing_and_cells_start_at_their_own_trace_point() -> None:
+    from kai.bench import evaluate as ev
+
+    idx = np.arange(1000)  # stored bearing by bearing: 0–249 is bearing 0, …
+    picked = ev.spread(idx, 100)
+    assert len(picked) == 100
+    assert np.all(np.diff(picked) > 0)  # in order
+    assert len(np.unique(picked // 250)) == 4  # every bearing, not the first one only
+    assert len(ev.spread(np.arange(10), 25)) == 25  # a short partition repeats
+    a = ev.Cell("markov_bursty", 1e6, 250.0, 0.0, 1, 0.05)
+    trace = ev.make_trace(a, seed=0)
+    assert np.array_equal(trace.bps, ev.make_trace(a, seed=0).bps)  # deterministic
+    same_cell_other_alpha = ev.Cell("markov_bursty", 1e6, 250.0, 0.0, 1, 0.10)
+    assert np.array_equal(trace.bps, ev.make_trace(same_cell_other_alpha, seed=0).bps)
+    other_cell = ev.Cell("markov_bursty", 1e6, 250.0, 0.0, 32, 0.05)
+    assert not np.array_equal(trace.bps, ev.make_trace(other_cell, seed=0).bps)

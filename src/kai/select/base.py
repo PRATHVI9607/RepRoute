@@ -45,6 +45,10 @@ class Selector(Protocol):
 
     def select(self, win: Window, state: State, truth: Truth | None = None) -> Decision: ...
 
+    # Optional, simulator only: `observe(rep, disagreed)` is called for every audited non-raw
+    # decision (the cloud compared it with the raw copy), and `audit_rate` asks for such audits.
+    # Only learning baselines define them.
+
 
 def ladder(allowed: Bool, feasible: Bool, cost: F64, mission: Mission) -> Decision:
     """First rule that yields an action wins.

@@ -117,6 +117,9 @@ def build_windowset(
                 bids += [name] * len(w)
                 conds += [cond] * len(w)
                 labels += [label] * len(w)
+    missing = sorted(set(names) - set(bids))
+    if missing:
+        raise RuntimeError(f"no readable recording for bearings {missing}: {skipped[:5]}")
     x = np.concatenate(xs)
     ws = WindowSet(
         x=x,

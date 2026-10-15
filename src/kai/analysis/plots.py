@@ -189,7 +189,7 @@ def fig_costs() -> Path:
     ax.legend(loc="lower right")
     ax.set_xscale("log")
     ax.set_xlabel("total cost over the grid, relative to the oracle (log)")
-    ax.set_title("Cost of every policy at matched risk")
+    ax.set_title("Total cost over the grid (risk not matched: baselines carry no certificate)")
     ax.grid(axis="y", visible=False)
     return _save(fig, "f6_costs")
 

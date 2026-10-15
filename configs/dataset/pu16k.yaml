@@ -1,0 +1,8 @@
+# Paderborn with 16 384-sample (256 ms) windows: the window-length study of ADR 0012.
+# Build with `KAI_WORK=transfer/pu16k python scripts/prepare_pu.py --window-n 16384`.
+id: pu-v1
+windows: data/processed/pu.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: kin  # fault-order model: best speed-blind candidate at this window length (model-search.md)
+bottleneck: teacher_front

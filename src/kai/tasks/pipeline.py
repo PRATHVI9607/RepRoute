@@ -33,22 +33,35 @@ from kai.reps.latent import OnnxLatent, OnnxVQ
 from kai.reps.registry import MENU_ORDER, classical_menu, save_menu
 from kai.tasks import train as tr
 from kai.tasks.heads import tune_and_fit
+from kai.tasks.models import SpecNet
 
 LEARNED = ("r5_ae", "r6_bottleneck", "r7_vq")
 
 
 @dataclass(frozen=True)
 class FoldConfig:
-    f_raw: str = "spec"  # "spec" (SpecNet, ADR 0004) or "wave" (RawNet, kept for comparison)
+    # "env" (EnvNet, ADR 0006), "kin" (KinNet, long windows, ADR 0012), "spec" (SpecNet, ADR 0004)
+    # or "wave" (RawNet, kept for comparison)
+    f_raw: str = "spec"
     epochs_raw: int = 30  # only used by f_raw="wave"
     epochs_latent: int = 15
     ae_dim: int = 32
     bottleneck_dim: int = 16
     vq_code_dim: int = 8
     head_trials: int = 10
+    # R6 encoder: "generic" (a CNN on the waveform) or "teacher_front" (the reference model's
+    # fixed front-end + a learned projection; needs f_raw "env" or "spec"). ADR 0006, addendum.
+    bottleneck: str = "generic"
     seed: int = 0
     device: str = "auto"
     learned: tuple[str, ...] = LEARNED
+
+    def recipe(self) -> dict[str, object]:
+        """What determines the fold's models (the device does not): stored next to the fold."""
+        out = asdict(self)
+        del out["device"]
+        out["learned"] = list(self.learned)
+        return out
 
 
 @dataclass(frozen=True)
@@ -154,7 +167,12 @@ def classical_outputs(ws: WindowSet, cache_dir: Path, workers: int = 8) -> dict[
 
 
 def _learned_rep(
-    rep_id: str, x: np.ndarray, y: np.ndarray, cfg: FoldConfig, device: torch.device
+    rep_id: str,
+    x: np.ndarray,
+    y: np.ndarray,
+    cfg: FoldConfig,
+    device: torch.device,
+    f_raw: nn.Module,
 ) -> OnnxLatent | OnnxVQ:
     """Train one learned encoder on training windows and wrap its ONNX export as an edge rep."""
     n = x.shape[1]
@@ -164,8 +182,20 @@ def _learned_rep(
         scale = np.maximum(np.quantile(np.abs(z), 0.999, axis=0), 1e-6) / 127.0
         return OnnxLatent(rep_id, n, tr.export_onnx(ae.encoder, n), scale)
     if rep_id == "r6_bottleneck":
-        model = tr.train_bottleneck(x, y, cfg.bottleneck_dim, cfg.epochs_latent, cfg.seed, device)
-        encoder = nn.Sequential(model.encoder, nn.Tanh())  # tanh output ∈ (-1, 1): scale 1/127
+        if cfg.bottleneck == "teacher_front":
+            if not isinstance(f_raw, SpecNet):
+                raise ValueError(
+                    "bottleneck=teacher_front needs a reference model with a front-end"
+                )
+            encoder = tr.train_front_bottleneck(
+                f_raw, x, cfg.bottleneck_dim, cfg.epochs_latent, cfg.seed, device
+            )
+        else:
+            model = tr.train_bottleneck(
+                x, y, cfg.bottleneck_dim, cfg.epochs_latent, cfg.seed, device
+            )
+            encoder = nn.Sequential(model.encoder, nn.Tanh())
+        # tanh output ∈ (-1, 1): scale 1/127
         return OnnxLatent(
             rep_id, n, tr.export_onnx(encoder, n), np.full(cfg.bottleneck_dim, 1 / 127.0)
         )
@@ -175,7 +205,7 @@ def _learned_rep(
     raise ValueError(f"unknown learned representation {rep_id}")
 
 
-def _latent_features(rep: OnnxLatent | OnnxVQ, x: np.ndarray, batch: int = 512) -> np.ndarray:
+def latent_features(rep: OnnxLatent | OnnxVQ, x: np.ndarray, batch: int = 512) -> np.ndarray:
     """Head input for every window, through the same quantise → dequantise path the wire uses."""
     out = []
     for i in range(0, len(x), batch):
@@ -193,6 +223,8 @@ def run_fold(  # noqa: PLR0915 - one linear recipe; splitting it would hide the 
     """Train everything for one fold and write its artifacts to `out_dir`."""
     assert_leakage_safe(ws, fold)
     out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "metrics.json").unlink(missing_ok=True)  # written last: marks a finished fold
+    (out_dir / "fold_config.json").write_text(json.dumps(cfg.recipe(), indent=1))
     device = tr.resolve_device(cfg.device)
     cache = classical_outputs(ws, cache_dir)
     part = np.full(len(ws), -1, np.int8)  # -1: in no partition (L2 drops the held-out condition)
@@ -207,8 +239,9 @@ def run_fold(  # noqa: PLR0915 - one linear recipe; splitting it would hide the 
         print(f"  [{out_dir.name}] {name}: {time.perf_counter() - t0:.0f}s", flush=True)
 
     f_raw: nn.Module
-    if cfg.f_raw == "spec":
-        f_raw = tr.train_specnet(x_tr, y_tr, g_tr, cfg.seed)
+    fixed_front = {"env": tr.train_envnet, "kin": tr.train_kinnet, "spec": tr.train_specnet}
+    if cfg.f_raw in fixed_front:
+        f_raw = fixed_front[cfg.f_raw](x_tr, y_tr, g_tr, cfg.seed)
     else:
         f_raw = tr.train_rawnet(x_tr, y_tr, cfg.epochs_raw, cfg.seed, device)
     stage("f_raw trained")
@@ -257,10 +290,10 @@ def run_fold(  # noqa: PLR0915 - one linear recipe; splitting it would hide the 
 
     for rid in cfg.learned:
         # the task-aware bottleneck is distilled from the reference model (supervised compression)
-        learned = _learned_rep(rid, x_tr, yhat["r0_raw"][is_train], cfg, device)
+        learned = _learned_rep(rid, x_tr, yhat["r0_raw"][is_train], cfg, device, f_raw)
         reps.append(learned)
         nbytes[rid] = np.full(len(ws), learned.size_model().mean_bytes, np.int32)
-        yhat[rid] = fit_head(rid, _latent_features(learned, ws.x))
+        yhat[rid] = fit_head(rid, latent_features(learned, ws.x))
         stage(rid)
 
     order = [r for r in MENU_ORDER if r in yhat]

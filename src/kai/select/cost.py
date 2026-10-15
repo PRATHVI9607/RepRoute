@@ -67,16 +67,28 @@ class Overheads:
     load_exponent: float = (
         1.0  # like the encoders: 1.0 is processor sharing, fitted by the profiler
     )
+    # Per sent frame, whatever the policy: framing, the event loop, the socket, and — under
+    # co-tenant load — waiting for the CPU at every wake-up. Calibrated on the real runtime by
+    # the profiler (ADR 0008); 0 reproduces the PRD formula.
+    t_io_ms: float = 0.0
+    io_load_exponent: float = 0.0
 
     @property
     def total_ms(self) -> float:
+        """Probe + predictor + selector: the work that depends on the policy."""
         return self.t_probe_ms + self.t_pred_ms + self.t_sel_ms
+
+    def io_ms(self, load: float) -> float:
+        return float(self.t_io_ms / (1.0 - load) ** self.io_load_exponent)
 
     def only(self, kind: OverheadKind) -> Overheads:
         """The part of the overhead a policy really incurs (a static policy runs no probe)."""
         probe, pred, sel = _OVERHEAD_PARTS[kind]
-        return Overheads(
-            self.t_probe_ms * probe, self.t_pred_ms * pred, self.t_sel_ms * sel, self.load_exponent
+        return replace(
+            self,
+            t_probe_ms=self.t_probe_ms * probe,
+            t_pred_ms=self.t_pred_ms * pred,
+            t_sel_ms=self.t_sel_ms * sel,
         )
 
 
@@ -105,17 +117,22 @@ class CostModel:
         return replace(self, overheads=self.overheads.only(kind))
 
     def edge_time_ms(self, load: float) -> F64:
-        """Edge CPU time. Probe, predictor and selector share the CPU, so they slow down too."""
+        """Edge time of a sent frame. Probe, predictor and selector share the CPU, so they slow
+        down too; the runtime's per-frame overhead is added for every representation."""
         p = self.profiles
         ov = self.overheads
         out: F64 = (
             ov.total_ms / (1.0 - load) ** ov.load_exponent
+            + ov.io_ms(load)
             + p.t_enc_ms / (1.0 - load) ** p.load_exponent
         )
         return out
 
     def latency_ms(self, s: State) -> F64:
-        """L_r = t_edge,r(ρ) + (Q + S_r + 28)/B + RTT/2 + t_dec,r + t_head,r."""
+        """L_r = t_edge,r(ρ) + (Q + S_r + 28)/B + RTT/2 + t_dec,r + t_head,r.
+
+        `t_edge` includes the runtime's per-frame overhead `t_io(ρ)` when one was calibrated.
+        """
         p = self.profiles
         tx_ms = (s.backlog_bytes + p.size_bytes + OVERHEAD_BYTES) * 8000.0 / s.bandwidth_bps
         out: F64 = self.edge_time_ms(s.load) + tx_ms + s.rtt_ms / 2.0 + p.t_dec_ms + p.t_head_ms

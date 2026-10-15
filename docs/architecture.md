@@ -33,6 +33,39 @@ flowchart TB
 Partitions never share a bearing: `train` fits the models, `ptrain` the sufficiency predictor,
 `calib` the thresholds, and `test` is only used by the experiments.
 
+## Which model runs where
+
+The edge decides **what to send**; the cloud decides **what is wrong with the bearing**. The edge
+never makes the diagnosis.
+
+```mermaid
+flowchart LR
+    subgraph EDGE["Edge models — decide what to send"]
+        direction TB
+        P["Sufficiency predictor<br/>one small network per representation<br/>input: 20 probe features"]
+        ENC["Learned encoders R5–R7<br/>autoencoder · bottleneck · VQ<br/>compress, never decide"]
+    end
+    subgraph CLOUD["Cloud models — make the diagnosis"]
+        direction TB
+        F["Reference model f_raw<br/>EnvNet on a waveform<br/>(raw, lossless, wavelets)"]
+        H["One head per feature or latent payload<br/>trained to repeat f_raw's decision"]
+    end
+    P -- "safe set → selector → one payload" --> F
+    ENC --> H
+```
+
+| | Edge | Cloud |
+|---|---|---|
+| Question answered | which payload is safe and cheapest for this window | healthy, inner-race or outer-race damage |
+| Models | sufficiency predictor (numpy); encoders of R5–R7 (ONNX) | reference model `f_raw` (ONNX); one linear or LightGBM head per feature / latent representation |
+| Trained on | predictor: `ptrain` bearings; encoders: `train` bearings | `train` bearings |
+| Code | `certify/predictor.py`, `reps/latent.py` | `cloud/heads.py` (`HeadZoo`), trained by `tasks/` |
+
+The reference model is **EnvNet** on the Paderborn data: a fixed envelope-spectrum front-end and a
+logistic regression ([ADR 0006](adr/0006-envelope-reference-model.md); every alternative tried is in
+[research/model-search.md](research/model-search.md)). The certificate bounds how often a payload
+makes the cloud *disagree with `f_raw`* — it says nothing about whether `f_raw` is right.
+
 ## Packages (`src/kai`)
 
 | Package | What it holds | May be imported by the edge |
@@ -47,7 +80,7 @@ Partitions never share a bearing: `train` fits the models, `ptrain` the sufficie
 | `edge` | bundle loader with integrity checks, runtime loop | — |
 | `cloud` | head zoo, asyncio server | no |
 | `profile` | timing harness with co-tenant load | no |
-| `bench` | Hydra config, calibration, bundle builder, scenario cells, experiments E1–E8, run registry | no |
+| `bench` | Hydra config, calibration, bundle builder, scenario cells, experiments E1–E8 and E10, run registry | no |
 | `analysis` | regime theory, statistics, figures | no |
 
 `import-linter` enforces two contracts: `contracts` imports nothing else from `kai`, and neither

@@ -17,7 +17,7 @@ dist/
 coverage.xml
 htmlcov/
 
-# ---- data: never committed (large, and the Paderborn licence is unverified) --------------------
+# ---- data: never committed (large; Paderborn is CC BY-NC 4.0, the 4G traces CC BY 4.0) ---------
 # Only the split manifests under data/splits/ are tracked.
 data/raw/
 data/interim/
@@ -28,7 +28,7 @@ artifacts/
 
 # ---- experiments: summaries, figures and the run registry are tracked --------------------------
 # The per-cell grids are megabytes each and regenerate with `make experiments`.
-experiments/e3/results.parquet
+experiments/e3*/results.parquet
 experiments/e5*/results.parquet
 experiments/**/*.npz
 experiments/**/*.onnx
@@ -66,3 +66,11 @@ Thumbs.db
 # ---- stray run output --------------------------------------------------------------------------
 *.log
 nohup.out
+
+# ---- transfer datasets (KAI_WORK=transfer/<name>): same rules as the primary work directory -----
+transfer/*/data/raw/
+transfer/*/data/interim/
+transfer/*/data/processed/
+transfer/*/artifacts/
+transfer/*/experiments/e3*/results.parquet
+transfer/*/experiments/e5*/results.parquet

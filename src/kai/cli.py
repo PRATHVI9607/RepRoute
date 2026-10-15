@@ -22,8 +22,13 @@ def folds(
     seed: int = 0,
     epochs_raw: int = 30,
     epochs_latent: int = 15,
-    f_raw: str = "spec",
+    f_raw: Annotated[
+        str, typer.Option(help="env | kin | spec | wave; default: the dataset's")
+    ] = "",
     head_trials: int = 10,
+    bottleneck: Annotated[
+        str, typer.Option(help="R6 encoder: generic | teacher_front; default: the dataset's")
+    ] = "",
     device: str = "auto",
     force: bool = False,
     overrides: Overrides = None,
@@ -41,7 +46,13 @@ def folds(
     )
     manifest = load_manifest(manifest_path)
     fold_cfg = FoldConfig(
-        f_raw, epochs_raw, epochs_latent, head_trials=head_trials, seed=seed, device=device
+        f_raw or cfg.dataset.f_raw,
+        epochs_raw,
+        epochs_latent,
+        head_trials=head_trials,
+        bottleneck=bottleneck or cfg.dataset.bottleneck,
+        seed=seed,
+        device=device,
     )
     for fold in manifest.folds:
         if fold.repeat >= repeats or fold.fold >= folds:
@@ -53,7 +64,13 @@ def folds(
             / f"s{seed}_r{fold.repeat}f{fold.fold}"
         )
         if (out / "metrics.json").exists() and not force:
-            typer.echo(f"skip {out.name} (done)")
+            stored = out / "fold_config.json"
+            if not stored.exists() or json.loads(stored.read_text()) != fold_cfg.recipe():
+                raise typer.BadParameter(
+                    f"{out} was trained with another recipe (or an unrecorded one); "
+                    "rerun with --force to retrain it"
+                )
+            typer.echo(f"skip {out.name} (done, same recipe)")
             continue
         t0 = time.perf_counter()
         _, metrics = run_fold(ws, fold, fold_cfg, out, work() / "data/interim/cache")
@@ -88,7 +105,7 @@ def synth(seed: int = 0, bearings_per_class: int = 10, windows_per_condition: in
 
 @app.command()
 def exp(name: str, overrides: Overrides = None) -> None:
-    """Run one experiment (e1 … e8) and print its summary."""
+    """Run one experiment (e1 … e8, e10) and print its summary."""
     from kai.bench import experiments
     from kai.bench.config import load_config
 

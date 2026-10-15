@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import os
+import zlib
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
 
-from kai.bench.calibrate import Scored, calibrate, score, threshold
+from kai.bench.calibrate import (
+    Scored,
+    calibrate,
+    cascade_certificate,
+    score,
+    static_safe_set,
+    threshold,
+)
+from kai.bench.config import ROOT
 from kai.certify import crc
 from kai.certify.aci import AdaptiveLambda, ipw_risk
+from kai.certify.fit import FIT_VERSION
 from kai.certify.predictor import Predictor
 from kai.certify.runtime import Certifier
 from kai.contracts.frame import OVERHEAD_BYTES
@@ -21,10 +31,12 @@ from kai.link.des import Result, Scenario, Workload, simulate
 from kai.select import baselines as bl
 from kai.select.base import Mission, Selector
 from kai.select.cost import CostModel, Overheads, Profiles, State
-from kai.select.policies import GreedySafe, MpcSafe, Oracle, Static
+from kai.select.policies import CascadeSafe, GreedySafe, GreedyStatic, MpcSafe, Oracle, Static
 from kai.tasks.pipeline import Table
 
 COMPRESSION = ("r0_raw", "r1_lossless", "r2a_wavelet", "r2b_wavelet")
+MEASURED_PREFIX = "ucc4g_"  # links named ucc4g_<mobility class> replay measured logs
+MEASURED_DIR = ROOT / "data/raw/traces/ucc4g"  # one set of traces for every dataset
 LEARNED = ("r0_raw", "r5_ae", "r6_bottleneck", "r7_vq")
 
 
@@ -49,16 +61,30 @@ class Cell:
 
 
 def make_trace(cell: Cell, seed: int) -> tr.Trace:
-    rng = np.random.default_rng([seed, 11])
+    """The cell's link. Every cell starts at its own point of the trace; the α levels of one
+    cell share it, so the policies and certificates they compare see the same link."""
     if cell.link == "static":
         return tr.static(cell.bandwidth_bps)
+    key = repr((cell.link, cell.bandwidth_bps, cell.deadline_ms, cell.load, cell.n_sensors))
+    rng = np.random.default_rng([seed, 11, zlib.crc32(key.encode())])
     if cell.link == "markov_bursty":
-        return tr.markov_bursty(rng, cell.bandwidth_bps, cell.bandwidth_bps / 20.0)
-    trace = tr.cellular(rng, cell.link)
+        trace = tr.markov_bursty(rng, cell.bandwidth_bps, cell.bandwidth_bps / 20.0)
+        return tr.Trace(
+            trace.name, trace.step_s, np.roll(trace.bps, -int(rng.integers(len(trace.bps))))
+        )
+    if cell.link.startswith(MEASURED_PREFIX):
+        # measured 4G throughput logs of one mobility class; the seed picks the log
+        files = sorted(MEASURED_DIR.glob(f"{cell.link.removeprefix(MEASURED_PREFIX)}__*.csv"))
+        if not files:
+            raise FileNotFoundError(
+                f"no measured traces for {cell.link}: run `python scripts/download_traces.py`"
+            )
+        trace = tr.from_csv(files[int(rng.integers(len(files)))], step_s=1.0)
+    else:
+        trace = tr.cellular(rng, cell.link)
     # rescale to the sensor-data regime: keep the shape, move the median to `bandwidth_bps`
-    return tr.Trace(
-        trace.name, trace.step_s, trace.bps * cell.bandwidth_bps / float(np.median(trace.bps))
-    )
+    bps = trace.bps * cell.bandwidth_bps / float(np.median(trace.bps))
+    return tr.Trace(trace.name, trace.step_s, np.roll(bps, -int(rng.integers(len(bps)))))
 
 
 @dataclass(frozen=True)
@@ -69,6 +95,8 @@ class FoldCtx:
     model: CostModel
     lambdas: dict[float, LambdaTable]  # per α; V2 is added per cell
     window_period_ms: float
+    static_safe: dict[float, np.ndarray]  # per α: the window-independent safe set (V0, constant ĝ)
+    cascade: dict[float, tuple[np.ndarray, float]]  # per α: (prior, λ) of the cascade (ADR 0011)
 
     @property
     def rep_ids(self) -> tuple[str, ...]:
@@ -76,9 +104,17 @@ class FoldCtx:
 
     def workload(self, n: int, partition: Partition = "test") -> Workload:
         t = self.scored.table
-        idx = np.flatnonzero(t.of(partition))
-        idx = np.resize(idx, n)  # cycle if the partition is shorter than the run
+        idx = spread(np.flatnonzero(t.of(partition)), n)
         return Workload(self.scored.ghat[idx], t.phi[idx], t.d[idx], t.payload_bytes[idx])
+
+
+def spread(idx: np.ndarray, n: int) -> np.ndarray:
+    """`n` indices evenly spaced over `idx`, in order (repeating if `idx` is shorter).
+
+    Windows are stored bearing by bearing, so the first `n` would cover one bearing only.
+    """
+    out: np.ndarray = idx[np.linspace(0, len(idx), n, endpoint=False).astype(int)]
+    return out
 
 
 def load_fold(
@@ -91,18 +127,22 @@ def load_fold(
     delta: float,
     window_period_ms: float,
     predictor_kind: Literal["mlp", "logistic"] = "mlp",
+    seed: int = 0,
 ) -> FoldCtx:
-    scored = _scored(fold_dir, predictor_kind)
+    scored = scored_fold(fold_dir, predictor_kind, seed)
     by_id = {p.rep_id: p for p in profiles}
     model = CostModel(
         Profiles.from_list([by_id[r] for r in scored.table.rep_ids]), overheads, energy, prices
     )
     ghat_cal, d_cal = scored.part("calib")
     lambdas = {a: calibrate(ghat_cal, d_cal, scored.table.rep_ids, (a,), delta) for a in alphas}
-    return FoldCtx(scored, model, lambdas, window_period_ms)
+    d_ptrain = scored.table.d[scored.table.of("ptrain")]
+    static = {a: static_safe_set(d_ptrain, d_cal, a) for a in alphas}
+    cascade = {a: cascade_certificate(ghat_cal, d_cal, d_ptrain, a) for a in alphas}
+    return FoldCtx(scored, model, lambdas, window_period_ms, static, cascade)
 
 
-def _scored(fold_dir: Path, kind: Literal["mlp", "logistic"]) -> Scored:
+def scored_fold(fold_dir: Path, kind: Literal["mlp", "logistic"] = "mlp", seed: int = 0) -> Scored:
     """Score a fold, fitting the sufficiency predictor once and keeping it next to the fold.
 
     Fitting takes about a minute and every worker process of a grid run needs it. The fit is
@@ -110,12 +150,16 @@ def _scored(fold_dir: Path, kind: Literal["mlp", "logistic"]) -> Scored:
     atomically because several workers may reach a new fold at the same time.
     """
     table = Table.load(fold_dir / "table.npz")
-    cached = fold_dir / f"predictor_{kind}.npz"
+    # keyed on the table itself, the seed and the fitting code: a fold rebuilt in place must
+    # never meet a predictor fitted on other bearings or by other code (ADR 0007)
+    key = f"{FIT_VERSION}|{seed}|".encode() + (fold_dir / "table.npz").read_bytes()
+    tag = f"{kind}_{zlib.crc32(key):08x}"
+    cached = fold_dir / f"predictor_{tag}.npz"
     if cached.exists():
         predictor = Predictor.load(cached)
         return Scored(table, predictor, predictor.predict(table.phi))
-    scored = score(table, kind)
-    tmp = fold_dir / f".predictor_{kind}.{os.getpid()}.npz"
+    scored = score(table, kind, seed)
+    tmp = fold_dir / f".predictor_{tag}.{os.getpid()}.npz"
     scored.predictor.save(tmp)
     tmp.replace(cached)
     return scored
@@ -186,10 +230,28 @@ def policies(
                 bl.ConformalModelSelection(lookup, bl.ltt_admissible(d_cal, alpha, 0.1), mission),
                 cert0,
             ),
+            "b13_adaedge": (
+                bl.AdaEdgeBandit(lookup, idx("r1_lossless"), np.random.default_rng(13)),
+                cert0,
+            ),
             "kai_s1_v0": (GreedySafe(model, mission), cert0),
             "kai_s1_v1": (
                 GreedySafe(model, mission),
+                Certifier(threshold(table, "v1", alpha, ids)),
+            ),
+            "kai_s1_v1_per_rep": (
+                GreedySafe(model, mission),
                 Certifier(threshold(table, "v1_per_rep", alpha, ids)),
+            ),
+            # V0 on min(ĝ, prior): probe only when it can pay for itself (ADR 0011)
+            "kai_s1_cascade": (
+                CascadeSafe(model, mission),
+                Certifier(ctx.cascade[alpha][1], prior=ctx.cascade[alpha][0]),
+            ),
+            # the same certificate with constant scores: one safe set, no probe, no predictor
+            "kai_s1_v0_static": (
+                GreedyStatic(lookup, mission),
+                Certifier(np.where(ctx.static_safe[alpha], crc.ALL, crc.RAW_ONLY)),
             ),
             "kai_s1_v2": (GreedySafe(model, mission), Certifier(v2_threshold(ctx, cell))),
             "kai_s2_v0": (MpcSafe(model, period, mission=mission), cert0),
@@ -250,8 +312,12 @@ def metrics(
         "risk_certified": float(res.disagreed[certified & sent].mean())
         if (certified & sent).any()
         else 0.0,
+        # what Proposition 1 bounds: disagreeing *and* certified, per offered window. The rate
+        # among certified decisions above divides by P(certified) and is not bounded by α.
+        "risk_certified_joint": float((res.disagreed & certified & sent).sum() / n),
         "risk_sent": float(res.disagreed[sent].mean()) if sent.any() else 0.0,
         "risk_all": float(res.disagreed.sum() / n),  # undelivered windows cannot disagree
+        "probe_rate": float(res.probed.mean()),  # < 1 only for a cascade (ADR 0011)
         "switching_rate": float(np.mean(np.diff(res.rep[sent]) != 0)) if sent.sum() > 1 else 0.0,
         "audit_bytes": float(
             res.audited.sum() * (model.profiles.size_bytes[0] + OVERHEAD_BYTES) / n
@@ -279,6 +345,7 @@ def run_cell(
     n_windows: int,
     seed: int,
     only: tuple[str, ...] = (),
+    late_cap_factor: float = 10.0,
 ) -> list[dict[str, float | str]]:
     """Simulate every policy of the zoo on one cell. Returns one metrics row per policy."""
     work = ctx.workload(n_windows)
@@ -290,6 +357,9 @@ def run_cell(
     for name, (selector, certifier) in policies(ctx, cell, mission, which).items():
         if only and name not in only:
             continue
-        res = simulate(scenario, work, selector, certifier, ctx.model)
-        rows.append({"policy": name, **metrics(res, cell, ctx.model)})
+        # a learning baseline needs audits to learn from; it pays for their raw copies
+        wanted = max(scenario.p_audit, getattr(selector, "audit_rate", 0.0))
+        res = simulate(replace(scenario, p_audit=wanted), work, selector, certifier, ctx.model)
+        audited_cell = replace(cell, p_audit=wanted)
+        rows.append({"policy": name, **metrics(res, audited_cell, ctx.model, late_cap_factor)})
     return rows

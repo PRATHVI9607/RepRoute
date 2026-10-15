@@ -17,13 +17,14 @@ check: lint types tests
 
 data:             ## download the Paderborn archives and build data/processed + split manifests
 	uv run --no-sync python scripts/download_data.py
+	uv run --no-sync python scripts/download_traces.py
 	uv run --no-sync python scripts/prepare_pu.py
 folds:            ## train models and build the Disagreement Table (FOLDS / REPEATS overridable)
 	uv run --no-sync kai folds --folds $(or $(FOLDS),5) --repeats $(or $(REPEATS),1)
 profile:
 	uv run --no-sync kai exp e1
 experiments: profile
-	for e in e2 e3 e5 e5pi e6 e8 e4 e7; do uv run --no-sync kai exp $$e || exit 1; done
+	for e in e2 e3 e5 e5pi e6 e8 e10 e4 e7; do uv run --no-sync kai exp $$e || exit 1; done
 figures:
 	uv run --no-sync python -m kai.analysis.plots
 docker-loop:      ## closed loop in containers with kernel shaping, then the DES-vs-Docker comparison (E7d)

@@ -31,7 +31,10 @@ class CloudServer:
             # the edge runs a codec or encoder version this cloud holds no head for
             return Reply(frame.window_id, frame.rep_code, "NEEDS_BUNDLE")
         t0 = time.perf_counter_ns()
-        decision = self.zoo.decide(rep.rep_id, frame.payload)
+        try:
+            decision = self.zoo.decide(rep.rep_id, frame.payload)
+        except Exception:  # CRC-valid but undecodable: answer it, keep the connection
+            return Reply(frame.window_id, frame.rep_code, "BAD_PAYLOAD")
         cloud_ms = (time.perf_counter_ns() - t0) / 1e6
         self.frames += 1
         seen = pending.setdefault(frame.window_id, {})

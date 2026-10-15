@@ -1,7 +1,8 @@
 """Download the Paderborn (PU) bearing archives into data/raw/pu. Resumable and size-verified.
 
 Source: https://groups.uni-paderborn.de/kat/BearingDataCenter/ (Lessmeier et al., PHME 2016).
-The download page states no licence; treat the data as research-use only and never commit it.
+Licence (https://mb.uni-paderborn.de/kat/forschung/bearing-datacenter/): Creative Commons
+Attribution-NonCommercial 4.0. Non-commercial academic use with a citation; never commit the data.
 """
 
 from __future__ import annotations

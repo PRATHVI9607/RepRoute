@@ -6,20 +6,21 @@ import datetime as dt
 import json
 import shutil
 import subprocess
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from kai.bench.calibrate import ALPHAS, calibrate, score
+from kai.bench.calibrate import ALPHAS, calibrate, cascade_certificate
+from kai.bench.evaluate import scored_fold
 from kai.certify import crc
 from kai.contracts.schemas import BundleManifest, EnergyModel, Prices, RepProfile
 from kai.edge.bundle import bundle_id_of, sha256_file
 from kai.reps.registry import load_menu
 from kai.select.base import Mission
 from kai.select.cost import Overheads
-from kai.tasks.pipeline import Table
 from kai.tasks.train import ONNX_OPSET
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -77,12 +78,11 @@ def build_bundle(
     delta: float = 0.1,
 ) -> Path:
     """Fit the predictor on ptrain, calibrate on calib, and freeze everything with hashes."""
-    table = Table.load(fold_dir / "table.npz")
-    scored = score(table, seed=meta.seed)
+    scored = scored_fold(fold_dir, seed=meta.seed)
+    table = scored.table
     ghat_cal, d_cal = scored.part("calib")
-    tmp = out_root / "_building"
-    if tmp.exists():
-        shutil.rmtree(tmp)
+    out_root.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=".building-", dir=out_root))  # concurrent builds never meet
     shutil.copytree(fold_dir / "menu", tmp / "menu")
     shutil.copytree(fold_dir / "heads", tmp / "heads")
     shutil.copy(fold_dir / "f_raw.onnx", tmp / "f_raw.onnx")
@@ -108,6 +108,17 @@ def build_bundle(
         tmp / "profiles.parquet", index=False
     )
     np.save(tmp / "calib_m.npy", crc.first_loss_threshold(ghat_cal, d_cal))
+    d_ptrain = table.d[table.of("ptrain")]
+    cascade = {a: cascade_certificate(ghat_cal, d_cal, d_ptrain, a) for a in alphas}
+    (tmp / "cascade.json").write_text(  # ADR 0011; inf is written as null
+        json.dumps(
+            {
+                str(a): {"prior": [None if np.isinf(v) else float(v) for v in p], "lam": lam}
+                for a, (p, lam) in cascade.items()
+            },
+            indent=1,
+        )
+    )
     phi_cal = table.phi[table.of("calib")]
     np.save(tmp / "phi_ref.npy", phi_cal[:: max(1, len(phi_cal) // 2000)])
 

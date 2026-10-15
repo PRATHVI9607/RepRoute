@@ -1,0 +1,30 @@
+{
+ "L1": {
+  "ks_pooled": 0.9714537784596287,
+  "hull_pooled": 0.28986379591781863
+ },
+ "L2": {
+  "ks_pooled": 0.8851347040798958,
+  "hull_pooled": 0.41839898702722256
+ },
+ "envelope_own/q0.005_w100": {
+  "false_alarm": 0.30764606653180165,
+  "detection": 0.7627448682883811,
+  "n_machines": 29
+ },
+ "envelope_own/q0.02_w100": {
+  "false_alarm": 0.41016785696383473,
+  "detection": 0.7825874879891267,
+  "n_machines": 29
+ },
+ "envelope_own/q0.02_w50": {
+  "false_alarm": 0.2524773126658713,
+  "detection": 0.7270428345588881,
+  "n_machines": 29
+ },
+ "envelope_own/q0.05_w100": {
+  "false_alarm": 0.4956408230375138,
+  "detection": 0.8316718418042164,
+  "n_machines": 29
+ }
+}

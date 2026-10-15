@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import warnings
 from collections.abc import Callable
@@ -15,7 +16,7 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import GroupKFold
 from torch import nn
 
-from kai.tasks.models import VQVAE, AutoEncoder, Bottleneck, RawNet, SpecNet
+from kai.tasks.models import VQVAE, AutoEncoder, Bottleneck, EnvNet, KinNet, RawNet, SpecNet
 
 ONNX_OPSET = 17
 Step = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -95,14 +96,20 @@ def train_rawnet(
     return model
 
 
-def train_specnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> SpecNet:
-    """Fit f_raw: fixed spectral-shape front-end + multinomial logistic regression.
+def _fit_front_linear(
+    model: SpecNet,
+    x: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    seed: int,
+    cs: tuple[float, ...],
+) -> SpecNet:
+    """Fit standardisation + multinomial logistic regression on a model's fixed front-end.
 
-    The only hyper-parameter, the regularisation strength, is chosen by bearing-grouped inner CV
-    on the training bearings. Deterministic and CPU-only; the fitted weights are copied into the
-    torch module so that the model exports to ONNX like every other one.
+    The only hyper-parameter, the regularisation strength, is chosen from `cs` by bearing-grouped
+    inner CV on the training bearings. Deterministic and CPU-only; the fitted weights are copied
+    into the torch module so that the model exports to ONNX like every other one.
     """
-    model = SpecNet(x.shape[1])
     feats = predict(model.front, x.astype(np.float32) / 32768.0).astype(np.float64)
     mean, scale = feats.mean(0), np.maximum(feats.std(0), 1e-9)
     z = (feats - mean) / scale
@@ -118,7 +125,7 @@ def train_specnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -
                 for tr, va in folds
             ]
         )
-        for c in (0.01, 0.1, 1.0)
+        for c in cs
     }
     best = make(max(scores, key=scores.__getitem__)).fit(z, y)
     with torch.no_grad():
@@ -132,6 +139,34 @@ def train_specnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -
     return model.eval()
 
 
+def train_specnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> SpecNet:
+    """The spectral-shape reference model (ADR 0004)."""
+    return _fit_front_linear(SpecNet(x.shape[1]), x, y, groups, seed, (0.01, 0.1, 1.0))
+
+
+def train_kinnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> KinNet:
+    """The fault-order reference model for long windows (ADR 0012); same penalty grid as EnvNet."""
+    cs = tuple(1.0 / (2 * len(x) * penalty) for penalty in (0.1, 0.3, 1.0))
+    model = _fit_front_linear(KinNet(x.shape[1]), x, y, groups, seed, cs)
+    assert isinstance(model, KinNet)
+    return model
+
+
+def train_envnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> EnvNet:
+    """The envelope-spectrum reference model (ADR 0006).
+
+    The search preferred strong shrinkage: a mean-loss L2 penalty of 0.1–1, which in
+    scikit-learn's parametrisation is C = 1 / (2 n penalty).
+    """
+    # shortcut: C is scaled by the full training size, so the inner CV (fits on about 2/3 of it)
+    # scores each penalty about 1.5x stronger than the final fit; the trained folds were made this
+    # way, change it only together with retraining them (ADR 0010)
+    cs = tuple(1.0 / (2 * len(x) * penalty) for penalty in (0.1, 0.3, 1.0))
+    model = _fit_front_linear(EnvNet(x.shape[1]), x, y, groups, seed, cs)
+    assert isinstance(model, EnvNet)
+    return model
+
+
 def train_bottleneck(
     x: np.ndarray, y: np.ndarray, dim: int, epochs: int, seed: int, device: torch.device
 ) -> Bottleneck:
@@ -140,6 +175,39 @@ def train_bottleneck(
     w = _class_weights(y, 3, device)
     _fit(model, lambda xb, yb: F.cross_entropy(model(xb), yb, weight=w), x, y, epochs, seed, device)
     return model
+
+
+def train_front_bottleneck(
+    teacher: SpecNet, x: np.ndarray, dim: int, epochs: int, seed: int, device: torch.device
+) -> nn.Sequential:
+    """R6 as supervised compression in the split-computing sense (ADR 0006, addendum).
+
+    The edge runs the reference model's own fixed front-end and a learned `dim`-value projection;
+    the projection is trained so that a small head on the noisy latent reproduces the teacher's
+    class probabilities. Returns the edge encoder `front → Linear → Tanh` with the teacher's
+    standardisation folded into the linear layer.
+    """
+    torch.manual_seed(seed)
+    teacher = copy.deepcopy(teacher).to(device).eval()
+    down = nn.Linear(teacher.front.n_features, dim)
+    head = nn.Sequential(nn.Linear(dim, 64), nn.ReLU(inplace=True), nn.Linear(64, 3))
+    student = nn.ModuleDict({"down": down, "head": head})
+
+    def step(xb: torch.Tensor, _: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            feats = (teacher.front(xb) - teacher.mean) / teacher.scale
+            target = torch.softmax(teacher.linear(feats), 1)
+        z = torch.tanh(down(feats))
+        z = z + (torch.rand_like(z) - 0.5) / 127.0  # stand-in for int8 quantisation noise
+        return F.kl_div(torch.log_softmax(head(z), 1), target, reduction="batchmean")
+
+    _fit(student, step, x, np.zeros(len(x)), epochs, seed, device)
+    teacher.cpu()
+    proj = nn.Linear(teacher.front.n_features, dim)
+    with torch.no_grad():
+        proj.weight.copy_(down.weight / teacher.scale)
+        proj.bias.copy_(down.bias - (down.weight * (teacher.mean / teacher.scale)).sum(1))
+    return nn.Sequential(teacher.front, proj, nn.Tanh()).eval()
 
 
 def train_autoencoder(

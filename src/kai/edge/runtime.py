@@ -26,16 +26,16 @@ from kai.contracts.schemas import EnergyModel, Prices, Variant
 from kai.edge.bundle import Bundle
 from kai.link.framing import PING_CODE, read_reply
 from kai.link.traces import HarmonicMeanEstimator
-from kai.select.base import NO_REP, Mission, Selector, Window
+from kai.select.base import NO_REP, Decision, Mission, Selector, Window
 from kai.select.cost import CostModel, Profiles, State
-from kai.select.policies import GreedySafe, MpcSafe
+from kai.select.policies import CascadeSafe, GreedySafe, MpcSafe
 
 
 @dataclass(frozen=True)
 class EdgeConfig:
     alpha: float = 0.05
     variant: Variant = "v0"
-    selector: str = "s1_greedy_safe"  # or "s2_mpc_safe"
+    selector: str = "s1_greedy_safe"  # or "s2_mpc_safe", "s1_cascade" (ADR 0011)
     mission: Mission = "fidelity_first"
     deadline_ms: float = 250.0
     period_ms: float = 64.0
@@ -58,6 +58,20 @@ class NeedsBundleError(RuntimeError):
 
 
 def build_certifier(bundle: Bundle, cfg: EdgeConfig) -> Certifier:
+    drift = DriftMonitor(bundle.phi_ref) if cfg.use_drift else None
+    if cfg.selector == "s1_cascade":
+        if bundle.cascade is None:
+            raise ValueError("this bundle predates the cascade (ADR 0011): rebuild it")
+        if cfg.alpha not in bundle.cascade:
+            raise ValueError(
+                f"the bundle's cascade is calibrated for α in {sorted(bundle.cascade)}"
+            )
+        # ACI re-reads thresholds calibrated on the plain scores; drift needs the probe on every
+        # window, which the cascade skips
+        if cfg.use_aci or cfg.use_drift:
+            raise ValueError("the cascade certificate supports neither ACI nor the drift monitor")
+        prior, cascade_lam = bundle.cascade[cfg.alpha]
+        return Certifier(cascade_lam, prior=prior)
     entry = bundle.lambdas.get(cfg.variant, cfg.alpha)
     lam = (
         np.array([entry.lam_per_rep[r] for r in bundle.manifest.rep_ids])
@@ -66,7 +80,6 @@ def build_certifier(bundle: Bundle, cfg: EdgeConfig) -> Certifier:
     )
     assert lam is not None
     aci = AdaptiveLambda(bundle.calib_m, cfg.alpha) if cfg.use_aci else None
-    drift = DriftMonitor(bundle.phi_ref) if cfg.use_drift else None
     return Certifier(lam, aci, drift)
 
 
@@ -76,6 +89,8 @@ def build_selector(
     plan = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
     if cfg.selector == "s2_mpc_safe":
         return MpcSafe(plan, cfg.period_ms, mission=cfg.mission)
+    if cfg.selector == "s1_cascade":
+        return CascadeSafe(plan, cfg.mission)
     return GreedySafe(plan, cfg.mission)
 
 
@@ -103,6 +118,7 @@ class Edge:
         self._deferred: deque[tuple[int, np.ndarray]] = deque()
         self.records: dict[int, dict] = {}
         self.needs_bundle = False
+        self._free = np.zeros(0, dtype=bool)  # the cascade's free set of the current window
 
     # --- transport --------------------------------------------------------------------------
     async def _send(self, window_id: int, rep_code: int, chash: bytes, payload: bytes) -> None:
@@ -155,6 +171,9 @@ class Edge:
                 self.needs_bundle = True
                 continue
             rec = self.records[window_id]
+            if reply.status != "OK":  # the cloud could not decode it: no decision, no latency
+                rec["cloud_error"] = reply.status
+                continue
             if rep_code == rec["rep_code"]:  # the live frame (not the audit copy)
                 rec["latency_ms"] = (now - rec["t_arrive"]) * 1000.0 - self.rtt_ms / 2.0
                 rec["decision"] = reply.decision
@@ -208,9 +227,6 @@ class Edge:
                 old_wid, old_x = self._deferred.popleft()
                 await send_rep(old_wid, 0, old_x, live=True)
             t_arrive = time.perf_counter()
-            phi = probe(x)
-            ghat = self.bundle.predictor.predict(phi)
-            safe = self.certifier.safe_set(ghat, phi)
             state = State(
                 bandwidth_bps=self.est.bps,
                 rtt_ms=self.rtt_ms,
@@ -218,32 +234,58 @@ class Edge:
                 load=self._load(),
                 deadline_ms=self.cfg.deadline_ms,
             )
-            dec = self.selector.select(Window(safe, ghat, phi), state)
+            dec, safe = self._decide(x, state)
             rec = {
                 "window_id": wid, "t_arrive": t_arrive, "rep": dec.rep, "flag": dec.flag,
                 "rep_code": -1, "bytes": 0, "audited": False, "bandwidth_bps": state.bandwidth_bps,
                 "backlog_bytes": state.backlog_bytes, "safe": safe.tolist(),
+                "probed": safe is not self._free,
             }  # fmt: skip
             self.records[wid] = rec
             if dec.rep != NO_REP:
                 await send_rep(wid, dec.rep, x, live=True)  # select-then-encode: one encoder runs
-                if dec.rep != 0 and self.audit.should_audit():
-                    rec["audited"] = True
-                    await send_rep(wid, 0, x, live=False)
+                if self.audit.should_audit():
+                    if dec.rep != 0:
+                        rec["audited"] = True
+                        await send_rep(wid, 0, x, live=False)
+                    else:
+                        self.certifier.feedback(False)  # raw agrees with itself (see kai.link.des)
             elif dec.flag == "deferred":
                 if len(self._deferred) >= self.cfg.defer_buffer_windows:
                     dropped_wid, _ = self._deferred.popleft()  # buffer full: drop the oldest
                     self.records[dropped_wid]["flag"] = "dropped"
                 self._deferred.append((wid, x))
             rec["edge_ms"] = (time.perf_counter() - t_arrive) * 1000.0
+        await self._drain_and_close(acks)
+        return [self.records[w] for w in window_ids.tolist() if w in self.records]
+
+    def _decide(self, x: np.ndarray, state: State) -> tuple[Decision, np.ndarray]:
+        """Select-then-encode. A cascade serves the window from its free set when it can, and
+        only then pays for the probe and the predictor (ADR 0011)."""
+        pre = getattr(self.selector, "select_without_scores", None)
+        if pre is not None:
+            self._free = self.certifier.free_set(len(self.bundle.reps))
+            dec = pre(self._free, state)
+            if dec is not None:
+                return dec, self._free
+        phi = probe(x)
+        ghat = self.bundle.predictor.predict(phi)
+        safe = self.certifier.safe_set(ghat, phi)
+        return self.selector.select(Window(safe, ghat, phi), state), safe
+
+    async def _drain_and_close(self, acks: asyncio.Task[None]) -> None:
+        """Wait for outstanding replies, then close; raise what the reply reader hit."""
         deadline = time.perf_counter() + 5.0 + self.cfg.deadline_ms / 1000.0
         while self._in_flight and time.perf_counter() < deadline and not self.needs_bundle:
             await asyncio.sleep(0.01)
-        acks.cancel()
-        self.writer.close()
+        try:
+            if acks.done():
+                acks.result()  # the reply reader died: raise its error instead of losing it
+        finally:
+            acks.cancel()
+            self.writer.close()
         if self.needs_bundle:
             raise NeedsBundleError("cloud replied NEEDS_BUNDLE: edge and cloud bundles differ")
-        return [self.records[w] for w in window_ids.tolist() if w in self.records]
 
 
 async def run_edge(

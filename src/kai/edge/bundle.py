@@ -47,6 +47,7 @@ class Bundle:
     mission: Mission
     calib_m: np.ndarray  # V0 first-loss thresholds of the calibration windows (for ACI)
     phi_ref: np.ndarray  # probe features of calibration windows (drift reference)
+    cascade: dict[float, tuple[np.ndarray, float]] | None = None  # α → (prior, λ), ADR 0011
 
 
 def load_bundle(path: Path, lock_file: Path | None = None) -> Bundle:
@@ -65,6 +66,11 @@ def load_bundle(path: Path, lock_file: Path | None = None) -> Bundle:
     if hashes != manifest.contract_hashes or [r.rep_id for r in reps] != manifest.rep_ids:
         raise BundleError("representation menu does not match the manifest")
     prof = json.loads((path / "profiles.json").read_text())
+    cascade = (
+        json.loads((path / "cascade.json").read_text())
+        if "cascade.json" in manifest.files
+        else None
+    )
     return Bundle(
         path=path,
         manifest=manifest,
@@ -78,4 +84,10 @@ def load_bundle(path: Path, lock_file: Path | None = None) -> Bundle:
         mission=prof["mission"],
         calib_m=np.load(path / "calib_m.npy"),
         phi_ref=np.load(path / "phi_ref.npy"),
+        cascade=None
+        if cascade is None
+        else {
+            float(a): (np.array([np.inf if v is None else v for v in e["prior"]]), float(e["lam"]))
+            for a, e in cascade.items()
+        },
     )

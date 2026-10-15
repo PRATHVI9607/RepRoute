@@ -6,6 +6,8 @@ The whole team uses these words identically (PRD §6.1). Code names are in `mono
 |---|---|
 | **Window** `x` | `N` consecutive int16 samples of one vibration channel (`N = 4096` at 64 kHz = 64 ms). |
 | **Reference model** `f_raw` | The cloud model trained on raw windows. Its decision is the reference for the certificate. |
+| **EnvNet** | The reference model used for the Paderborn data: a fixed envelope-spectrum front-end (`EnvFront`, 96 values) and a logistic regression (ADR 0006). SpecNet (ADR 0004) is the earlier spectral-shape model, still used by the synthetic fixture. |
+| **Supervised bottleneck** R6 | For the Paderborn data: `f_raw`'s front-end followed by a learned 16-value projection, sent as 16 int8 bytes. The edge therefore runs the reference model's feature extraction, not its decision rule. |
 | **Representation** `r` | A payload format: an edge encoder `e_r` plus a cloud head `h_r`. `r0_raw` is raw. |
 | **Menu** | The ordered list of representations. Index 0 is always raw; the order is the column order everywhere. |
 | **Decision** `ŷ_r(x)` | `h_r(e_r(x))`: the class the cloud outputs when it receives representation `r`. |

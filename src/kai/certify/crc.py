@@ -7,8 +7,9 @@ Conventions
 * A threshold λ selects `S_λ(x) = {r0} ∪ {r : ĝ_r(x) ≤ λ}`. `RAW_ONLY` (-1.0) is the threshold whose
   safe set is {r0} for every window, because ĝ ≥ 0.
 * Every calibration below reduces to one number per calibration window: `m_i`, the smallest λ at
-  which window i incurs a loss. The loss is then `1[λ ≥ m_i]`, monotone and right-continuous in λ —
-  exactly what Conformal Risk Control requires.
+  which window i incurs a loss. The loss is then `1[λ ≥ m_i]`: monotone in λ, zero at `RAW_ONLY`
+  and bounded by 1, which is what the Conformal Risk Control argument needs once λ is taken from
+  the finite grid of floats (docs/theory/proposition1.md, step 3).
 """
 
 from __future__ import annotations
@@ -90,11 +91,13 @@ def threshold_for_count(m_sorted: F64, k: int) -> float:
 
 
 def crc_threshold(m: F64, alpha: float) -> float:
-    """λ̂ = sup{λ : (n·R̂_n(λ) + 1)/(n + 1) ≤ α} (Angelopoulos et al., ICLR 2024).
+    """λ̂ = the largest float λ with (n·R̂_n(λ) + 1)/(n + 1) ≤ α (Angelopoulos et al., ICLR 2024).
 
     Guarantees E[L(x_{n+1}; λ̂)] ≤ α for exchangeable data. With fewer than ⌈1/α⌉ - 1 calibration
-    windows no loss can be afforded and the result is `RAW_ONLY`.
+    windows even zero observed losses fail the bound and the result is `RAW_ONLY`.
     """
     n = len(m)
+    # the 1e-9 absorbs float error in α(n + 1), e.g. 0.05 * 20; it can exceed the bound by at
+    # most 1e-9 / (n + 1)
     allowed = math.floor(alpha * (n + 1) - 1 + 1e-9)
     return threshold_for_count(np.sort(m), allowed)

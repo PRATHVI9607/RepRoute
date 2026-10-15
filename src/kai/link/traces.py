@@ -103,7 +103,7 @@ class HarmonicMeanEstimator:
 
     def __init__(self, initial_bps: float, k: int = 5) -> None:
         self.k = k
-        self._samples = [initial_bps]
+        self._samples = [max(initial_bps, 1.0)]  # a measured trace may start in an outage
 
     def add(self, bps: float) -> None:
         self._samples = [*self._samples[-(self.k - 1) :], max(bps, 1.0)]

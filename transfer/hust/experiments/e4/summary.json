@@ -1,0 +1,114 @@
+{
+ "n_boundaries_measured": 9,
+ "n_boundaries_matched": 2,
+ "n_boundaries_theory": 2,
+ "max_rel_error": 17.784800542662257,
+ "median_latency_model_error": 0.0947782636088074,
+ "boundaries": [
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r5_ae",
+   "bps_measured": 401845.82251260185,
+   "bps_theory": 203201.69673416784,
+   "rel_error": 0.9775711963581872
+  },
+  {
+   "load": 0.0,
+   "low": "r5_ae",
+   "high": "r4_summary",
+   "bps_measured": 581087.702342452,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 1474853.2767514917,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r5_ae",
+   "high": "r7_vq",
+   "bps_measured": 2541942.329677457,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r5_ae",
+   "bps_measured": 3817103.3430818873,
+   "bps_theory": 203201.69673416784,
+   "rel_error": 17.784800542662257
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 229676.4119060545,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 1252188.9889564395,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r5_ae",
+   "high": "r4_summary",
+   "bps_measured": 1922319.7916050274,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 31264244.589219164,
+   "bps_theory": null,
+   "rel_error": NaN
+  }
+ ],
+ "family/n_theory": 4,
+ "family/n_measured": 3,
+ "family/n_matched": 3,
+ "family/max_rel_error": 1.0658100306911813,
+ "family_boundaries": [
+  {
+   "load": 0.0,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 17603174.542977933,
+   "bps_theory": 10074929.66157243,
+   "rel_error": 0.7472255523648532
+  },
+  {
+   "load": 0.0,
+   "low": "r1_lossless",
+   "high": "r0_raw",
+   "bps_measured": 24616782.87590757,
+   "bps_theory": 11916285.868585533,
+   "rel_error": 1.0658100306911813
+  },
+  {
+   "load": 0.8,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 5110157.160473113,
+   "bps_theory": 7234208.025451883,
+   "rel_error": 0.29361207992717236
+  }
+ ],
+ "latency_model_bias/load0": -0.06430807467702683,
+ "latency_model_bias/load0.8": -0.12795041674282207,
+ "H6_pass": false
+}

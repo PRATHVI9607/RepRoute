@@ -26,7 +26,7 @@ async def read_frame(reader: asyncio.StreamReader) -> fr.Frame:
 class Reply:
     window_id: int
     rep_code: int
-    status: str  # "OK" | "NEEDS_BUNDLE" | "PONG"
+    status: str  # "OK" | "NEEDS_BUNDLE" | "BAD_PAYLOAD" | "PONG"
     decision: int = -1
     cloud_ms: float = 0.0  # decode + head time measured on the cloud
     disagreed: int = -1  # audit result once both copies of a window arrived: 0 / 1, else -1

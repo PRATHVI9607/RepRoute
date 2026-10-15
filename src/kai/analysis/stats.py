@@ -10,7 +10,7 @@ from statsmodels.stats.multitest import multipletests
 def bca_ci(
     values: np.ndarray, rng: np.random.Generator, level: float = 0.95
 ) -> tuple[float, float]:
-    """BCa bootstrap CI of the mean over independent units (folds, repeats)."""
+    """BCa bootstrap CI of the mean over units (folds, repeats). Under-covers for n ≈ 5."""
     values = np.asarray(values, dtype=np.float64)
     if len(values) < 2 or np.ptp(values) <= 1e-12 * max(1.0, abs(values.mean())):
         return float(values.mean()), float(values.mean())  # BCa is undefined without spread
@@ -47,8 +47,7 @@ def one_sided_p(values: np.ndarray, threshold: float, greater: bool = True) -> f
     """One-sample t-test p-value for H1: mean > threshold (or < threshold)."""
     values = np.asarray(values, dtype=np.float64)
     if len(values) < 2 or np.ptp(values) == 0:
-        better = values.mean() > threshold if greater else values.mean() < threshold
-        return 0.0 if better else 1.0
+        return 1.0  # no spread, no test: never report evidence from a single unit
     alt = "greater" if greater else "less"
     return float(stats.ttest_1samp(values, threshold, alternative=alt).pvalue)
 

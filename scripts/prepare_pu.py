@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 
+from kai.bench.config import work
 from kai.data import pu
 from kai.data.splits import make_l1_splits, make_l2_splits, save_manifest
 
@@ -26,12 +27,12 @@ def main(
     )
     if float(report["clipped_fraction"]) > 1e-5:  # type: ignore[arg-type]
         raise typer.BadParameter(f"full_scale too small: {report}")
-    out = ROOT / "data/processed/pu.npz"
+    out = work() / "data/processed/pu.npz"  # KAI_WORK=… builds e.g. a long-window variant elsewhere
     ws.save(out)
     l1 = make_l1_splits(ws.bearing_labels(), ws.dataset_id, seed, n_folds, n_repeats)
     l2 = make_l2_splits(l1, list(pu.CONDITIONS))
-    paths = [save_manifest(m, ROOT / "data/splits") for m in (l1, l2)]
-    (ROOT / "data/processed/pu.report.json").write_text(json.dumps(report, indent=1))
+    paths = [save_manifest(m, work() / "data/splits") for m in (l1, l2)]
+    (work() / "data/processed/pu.report.json").write_text(json.dumps(report, indent=1))
     typer.echo(json.dumps(report))
     typer.echo(f"wrote {out} and {[p.name for p in paths]}")
 

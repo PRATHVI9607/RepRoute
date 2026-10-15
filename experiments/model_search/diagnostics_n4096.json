@@ -1,0 +1,58 @@
+{
+ "modfloor16": {
+  "window_n": 4096,
+  "bearing_majority_vote_accuracy": 0.7424242424242424,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.7254814518853612,
+  "speed_900_vs_1500_accuracy": 0.7718656005579804,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.44398976095305176,
+   "N15_M01_F10": 0.6128842263206276,
+   "N15_M07_F04": 0.5802038698817932,
+   "N15_M07_F10": 0.6201543827680377
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.7691291025407272
+ },
+ "band24+mod6": {
+  "window_n": 4096,
+  "bearing_majority_vote_accuracy": 0.45454545454545453,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.7167788192786453,
+  "speed_900_vs_1500_accuracy": 0.9131685142539844,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.3520656048850492,
+   "N15_M01_F10": 0.4062032343657684,
+   "N15_M07_F04": 0.406370792688573,
+   "N15_M07_F10": 0.4051742033818355
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.9472908777480897
+ },
+ "kinb_fft256": {
+  "window_n": 4096,
+  "bearing_majority_vote_accuracy": 0.7121212121212122,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.7149684167980593,
+  "speed_900_vs_1500_accuracy": 0.8037427766640002,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.4238633943085592,
+   "N15_M01_F10": 0.5870243059603905,
+   "N15_M07_F04": 0.5607708981129166,
+   "N15_M07_F10": 0.5970405098875415
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.7750324160480155
+ },
+ "modfloor16_order": {
+  "window_n": 4096,
+  "bearing_majority_vote_accuracy": 0.7272727272727273,
+  "n_bearing_votes": 66,
+  "binary_healthy_vs_damaged_macro_f1": 0.6923256542786546,
+  "speed_900_vs_1500_accuracy": 0.9987146645618704,
+  "per_condition_macro_f1": {
+   "N09_M07_F10": 0.4623039892583326,
+   "N15_M01_F10": 0.5984049539615761,
+   "N15_M07_F04": 0.5741434127162873,
+   "N15_M07_F10": 0.6096757362454965
+  },
+  "same_bearings_macro_f1_diagnostic_only": 0.7731737513011593
+ }
+}

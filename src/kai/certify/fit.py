@@ -12,6 +12,7 @@ from sklearn.neural_network import MLPClassifier
 from kai.certify.predictor import F64, Layers, Predictor
 
 HIDDEN = 32
+FIT_VERSION = "1"  # bump with any change to how ĝ is fitted: cached predictors are keyed on it
 
 
 def _constant(n_features: int, positives: int, n: int, hidden: int | None) -> Layers:
@@ -25,6 +26,19 @@ def _constant(n_features: int, positives: int, n: int, hidden: int | None) -> La
     if hidden is None:
         return ((np.zeros((n_features, 1)), bias),)
     return ((np.zeros((n_features, hidden)), np.zeros(hidden)), (np.zeros((hidden, 1)), bias))
+
+
+def constant_scores(d: npt.NDArray[np.bool_]) -> F64:
+    """Scores that ignore the window: each representation's Laplace-smoothed disagreement rate.
+
+    Proposition 1 needs scores that are independent of the calibration and test windows, nothing
+    more, so a constant per representation is a valid ĝ. The safe set it gives is the same for
+    every window, and the edge then needs neither the probe nor a predictor (ADR 0008).
+    Fit on `ptrain` only, like any other predictor.
+    """
+    out: F64 = (d.sum(axis=0).astype(np.float64) + 0.5) / (len(d) + 1.0)
+    out[0] = 0.0
+    return out
 
 
 def fit_predictor(

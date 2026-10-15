@@ -141,3 +141,18 @@ def test_menu_loader_detects_a_codec_parameter_change(fold_dir, tmp_path) -> Non
 
     with pytest.raises(ContractMismatchError, match="r2a_wavelet"):
         load_menu(menu)
+
+
+def test_cascade_on_the_edge_skips_the_probe_and_stays_inside_the_safe_set(
+    bundle_dir, fold_dir, ws: WindowSet
+) -> None:
+    table = Table.load(fold_dir / "table.npz")
+    cfg = EdgeConfig(alpha=0.10, deadline_ms=500, period_ms=8, shape_bps=2e7, load=0.0,
+                     selector="s1_cascade")  # fmt: skip
+    records = loop(bundle_dir, ws, table, cfg, n=40)
+    assert len(records) == 40
+    for rec in records:
+        assert rec["safe"][rec["rep"]]  # free or probed, the choice is inside the safe set
+        assert rec["decision"] == table.yhat[rec["window_id"], rec["rep"]]
+    assert load_bundle(bundle_dir).cascade_lam is not None
+    assert {rec["probed"] for rec in records} <= {True, False}

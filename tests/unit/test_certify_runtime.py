@@ -145,3 +145,35 @@ def test_drift_monitor_fires_on_shift_only(rng: np.random.Generator) -> None:
     assert not any(fired[:199])  # needs a full buffer before it can speak
     assert fired[-1]
     assert shifted.min_pvalue < 1e-6
+
+
+def test_predictor_cache_is_refitted_when_the_fold_table_changes(fold_dir, tmp_path) -> None:
+    import shutil
+    from dataclasses import replace
+
+    from kai.bench import evaluate as ev
+    from kai.tasks.pipeline import Table
+
+    work = tmp_path / "fold"
+    shutil.copytree(fold_dir, work)
+    first = ev.scored_fold(work, "logistic")
+    again = ev.scored_fold(work, "logistic")
+    assert len(list(work.glob("predictor_logistic_*.npz"))) == 1  # second call read the cache
+    assert np.array_equal(first.ghat, again.ghat)
+    table = Table.load(work / "table.npz")
+    replace(table, yhat=np.roll(table.yhat, 1, axis=0)).save(work / "table.npz")
+    ev.scored_fold(
+        work, "logistic"
+    )  # a fold rebuilt in place: the old predictor must not be reused
+    assert len(list(work.glob("predictor_logistic_*.npz"))) == 2
+
+
+def test_a_fold_records_the_recipe_it_was_trained_with(fold_dir) -> None:
+    import json
+
+    from kai.tasks.pipeline import FoldConfig
+
+    stored = json.loads((fold_dir / "fold_config.json").read_text())
+    assert stored == FoldConfig(epochs_latent=12, head_trials=3, device="cpu").recipe()
+    assert "device" not in stored  # where it ran does not change what was trained
+    assert stored != FoldConfig(f_raw="env", epochs_latent=12, head_trials=3).recipe()

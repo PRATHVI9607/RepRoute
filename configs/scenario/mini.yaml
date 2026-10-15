@@ -6,5 +6,3 @@ loads: [0.0, 0.8]
 sensors: [1, 8]
 rtt_ms: 20.0
 n_windows: 300
-energy_budget_j: {normal: .inf, constrained: 2.0e-3}
-storage_bytes: {ample: .inf, tight: 16384}

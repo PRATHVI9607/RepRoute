@@ -12,7 +12,7 @@ from hypothesis import strategies as st
 from kai.select import baselines as bl
 from kai.select.base import NO_REP, Decision, Truth, Window, ladder
 from kai.select.cost import State
-from kai.select.policies import GreedySafe, MpcSafe, Oracle, Static
+from kai.select.policies import CascadeSafe, GreedySafe, GreedyStatic, MpcSafe, Oracle, Static
 from toy import PRICES, REP_IDS, toy_model
 
 K = len(REP_IDS)
@@ -43,6 +43,8 @@ def all_selectors() -> list:
     admissible = np.array([True, True, True, False, False])
     return [
         GreedySafe(MODEL),
+        GreedyStatic(MODEL),
+        CascadeSafe(MODEL),
         GreedySafe(MODEL, mission="liveness_first"),
         GreedySafe(
             replace(MODEL, profiles=MODEL.profiles.without_encode_cost()), queue_aware=False
@@ -54,6 +56,7 @@ def all_selectors() -> list:
         bl.ContextBlind(MODEL),
         bl.ProfileTable(MODEL, admissible, deadline_ms=100.0),
         bl.AdaptiveThreshold((2, 1, 0)),
+        bl.AdaEdgeBandit(MODEL, 1, np.random.default_rng(0)),
         bl.TwoModeSwitch(MODEL, semantic=4, traditional=1),
         bl.ConformalModelSelection(MODEL, admissible),
     ]
@@ -124,6 +127,9 @@ def test_each_policy_is_charged_only_the_work_it_does() -> None:
         "GreedySafe": "full", "MpcSafe": "full", "ContextBlind": "full",  # need the safe set
         "AdaptiveThreshold": "probe",  # reads the probe, runs no predictor
         "ProfileTable": "select", "TwoModeSwitch": "select", "ConformalModelSelection": "select",
+        "CascadeSafe": "full",  # when it probes; served from its free set it pays "select"
+        "GreedyStatic": "select",  # the safe set is the same for every window: nothing to score
+        "AdaEdgeBandit": "select",  # learns from audits, computes nothing from the window
         "Static": "none",
     }  # fmt: skip
     assert Oracle(MODEL).overhead == "select"
@@ -135,6 +141,35 @@ def test_each_policy_is_charged_only_the_work_it_does() -> None:
     # the simulator charges accordingly: same window, same representation, different edge time
     full, none = MODEL.edge_time_ms(0.5), MODEL.for_policy("none").edge_time_ms(0.5)
     assert np.allclose(full - none, ov.total_ms / 0.5)
+
+
+def test_per_frame_runtime_overhead_is_paid_by_every_policy_and_grows_with_load() -> None:
+    with_io = replace(MODEL, overheads=replace(MODEL.overheads, t_io_ms=0.4, io_load_exponent=1.0))
+    for kind in ("none", "select", "probe", "full"):
+        gap = with_io.for_policy(kind).edge_time_ms(0.0) - MODEL.for_policy(kind).edge_time_ms(0.0)
+        assert np.allclose(gap, 0.4), kind  # a static policy sends frames too
+    assert np.allclose(with_io.edge_time_ms(0.5) - MODEL.edge_time_ms(0.5), 0.8)
+    assert with_io.overheads.total_ms == MODEL.overheads.total_ms  # not policy-dependent work
+    state = State(1e6, 20.0, 0.0, 0.5, 250.0)
+    assert np.allclose(with_io.latency_ms(state) - MODEL.latency_ms(state), 0.8)
+
+
+def test_adaedge_bandit_prefers_lossless_then_learns_which_lossy_arm_agrees() -> None:
+    bandit = bl.AdaEdgeBandit(MODEL, lossless=1, rng=np.random.default_rng(0), epsilon=0.0)
+    win = Window(np.ones(K, bool), np.zeros(K), np.zeros(4))
+    fast = State(1e7, 20.0, 0.0, 0.0, 250.0)
+    assert bandit.select(win, fast).rep == 1  # lossless fits: nothing lossy is considered
+    slow = State(64e3, 20.0, 0.0, 0.0, 60.0)  # only the two compact arms meet the deadline
+    assert not MODEL.feasible(slow)[:3].any()
+    assert bandit.select(win, slow).rep == 4  # optimistic start: all arms tie, the cheapest wins
+    bandit.observe(4, disagreed=True)
+    assert bandit.select(win, slow).rep == 3  # one audited disagreement at step 0.5 demotes it
+    for _ in range(8):
+        bandit.observe(3, disagreed=True)
+        bandit.observe(4, disagreed=False)
+    assert bandit.select(win, slow).rep == 4  # and the estimate recovers with agreeing audits
+    explorer = bl.AdaEdgeBandit(MODEL, lossless=1, rng=np.random.default_rng(0), epsilon=1.0)
+    assert {explorer.select(win, slow).rep for _ in range(50)} == {3, 4}  # explores feasible arms
 
 
 def test_ladder_steps_in_order() -> None:
@@ -219,3 +254,22 @@ def test_adaptive_threshold_steps_up_on_a_level_change() -> None:
 
     assert {at(0.1) for _ in range(50)} == {2}  # steady signal → most compressed
     assert at(5.0) == 0  # sudden jump → highest fidelity
+
+
+@given(states, st.lists(st.booleans(), min_size=K - 1, max_size=K - 1))
+def test_cascade_serves_from_its_free_set_only_when_probing_cannot_pay(state: State, rest) -> None:
+    free = np.array([True, *rest])
+    cascade = CascadeSafe(MODEL)
+    dec = cascade.select_without_scores(free, state)
+    c_free, f_free = MODEL.for_policy("select").evaluate(state)
+    c_full, f_full = MODEL.for_policy("full").evaluate(state)
+    best_other = np.where(~free & f_full, c_full, np.inf).min()
+    if dec is None:  # it probes: some representation outside the free set could win
+        assert np.isfinite(best_other)
+        assert best_other < np.where(free & f_free, c_free, np.inf).min()
+    elif dec.flag == "certified":
+        assert free[dec.rep]  # served without scores: from the free set only
+        assert f_free[dec.rep]
+        assert c_free[dec.rep] <= best_other
+    else:  # nothing could be sent even after probing
+        assert not np.isfinite(best_other)

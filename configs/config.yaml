@@ -11,3 +11,6 @@ delta: 0.1            # LTT (V1) failure probability
 p_audit: 0.02         # audit-in-the-loop sampling rate (E6)
 late_cap_factor: 10   # a window never delivered is charged as late_cap_factor × deadline
 workers: 10
+reuse: false        # grid experiments: re-analyse stored results/results.parquet instead of simulating
+add_policies: []    # with reuse: simulate only these policies and merge them into the stored results
+max_folds: null     # limit grid experiments to the first folds (price-preset runs)

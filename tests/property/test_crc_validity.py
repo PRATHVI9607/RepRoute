@@ -114,3 +114,49 @@ def test_too_few_calibration_windows_means_raw_only() -> None:
     assert crc.crc_threshold(crc.first_loss_threshold(g, d), 0.05) == crc.RAW_ONLY  # n < ⌈1/α⌉ - 1
     assert not crc.safe_set(g, crc.RAW_ONLY)[:, 1:].any()
     assert crc.safe_set(g, crc.RAW_ONLY)[:, 0].all()
+
+
+def test_constant_scores_give_one_valid_safe_set_for_every_window() -> None:
+    """V0 with ĝ_r = the ptrain disagreement rate: no probe, same any-policy bound (ADR 0008)."""
+    from kai.bench.calibrate import static_safe_set
+
+    rng = np.random.default_rng(5)
+    _, d_test = population(rng, N_TEST)
+    alpha = 0.10
+    risks, sizes = [], []
+    for _ in range(200):
+        _, d_ptrain = population(rng, 1000)
+        _, d_cal = population(rng, 1000)
+        mask = static_safe_set(d_ptrain, d_cal, alpha)
+        assert mask.shape == (K,)
+        assert mask[0]  # raw is always a member
+        risks.append(float((d_test & mask).any(axis=1).mean()))  # the worst policy inside the set
+        sizes.append(int(mask.sum()))
+    assert np.mean(risks) <= alpha + tolerance(alpha, risks)
+    assert np.mean(sizes) > 2  # not vacuous: it certifies more than raw alone
+
+
+def test_cascade_union_keeps_the_guarantee_and_the_free_set_is_always_safe() -> None:
+    """Static set at α/2 ∪ per-window set at α/2: any policy inside, including one that only
+    ever uses the free part, stays within α in expectation (ADR 0011)."""
+    from kai.bench.calibrate import cascade_certificate
+    from kai.certify.runtime import Certifier
+
+    rng = np.random.default_rng(11)
+    g_te, d_te = population(rng, N_TEST)
+    alpha = 0.10
+    worst, free_sizes, gain = [], [], []
+    for _ in range(200):
+        _, d_ptrain = population(rng, 1000)
+        g_cal, d_cal = population(rng, 1000)
+        prior, lam = cascade_certificate(g_cal, d_cal, d_ptrain, alpha)
+        cert = Certifier(lam, prior=prior)
+        safe = cert.safe_set(g_te)
+        free = cert.free_set(K)
+        assert (safe[:, free]).all()  # the free set is inside every window's safe set
+        worst.append(float((safe & d_te).any(axis=1).mean()))
+        free_sizes.append(int(free.sum()))
+        gain.append(float(safe.sum(axis=1).mean() - free.sum()))
+    assert np.mean(worst) <= alpha + tolerance(alpha, worst)
+    assert np.mean(free_sizes) > 1  # it certifies something for free ...
+    assert np.mean(gain) > 0  # ... and the per-window part adds to it
