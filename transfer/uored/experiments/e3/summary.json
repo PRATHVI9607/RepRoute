@@ -1,0 +1,46 @@
+{
+ "n_folds": 5,
+ "n_cells": 1296,
+ "H1/reps_dominant_in_10pct_of_cells": 1,
+ "H1/b4_extra_cost_vs_oracle": 1.8505409044101677,
+ "H3/cost_reduction_vs_b4": -0.1574984888488209,
+ "H3/cost_reduction_vs_b4_ci_lo": -0.33194921779773195,
+ "H3/cost_reduction_vs_b4_ci_hi": 0.08369533077612097,
+ "H3/cost_geo_ratio_vs_b4": 11.674057914857142,
+ "H3/slo_reduction_vs_b5_bursty": 0.28244129906938426,
+ "H3/slo_reduction_vs_b5_ci_lo": 0.22196479555044446,
+ "H3/slo_reduction_vs_b5_ci_hi": 0.3313499668445257,
+ "oracle_dominant_share": {
+  "r6_bottleneck": 0.9954
+ },
+ "H1_pass": false,
+ "H3_pass": false,
+ "per_fold": {
+  "H3_cost": [
+   -0.41837282001038,
+   -0.24180012412724738,
+   -0.33940020071340493,
+   -0.005684747333250861,
+   0.2177654479401787
+  ],
+  "H3_slo": [
+   0.31130411539929204,
+   0.18697166303666968,
+   0.34176590609038904,
+   0.23760487324292134,
+   0.3345599375776491
+  ],
+  "H1_cost": [
+   0.6680548432196158,
+   0.45951912627871283,
+   0.5880683603093271,
+   0.7823595197265639,
+   0.7479450890751042
+  ]
+ },
+ "price_preset": "metered_cellular",
+ "x/kai_s1_v0_static/cost_reduction_vs_b4": -0.2603497310699092,
+ "x/kai_s1_v0_static/probe_rate": 1.0,
+ "x/kai_s1_cascade/cost_reduction_vs_b4": -0.28058272607318324,
+ "x/kai_s1_cascade/probe_rate": 0.7540785751028807
+}

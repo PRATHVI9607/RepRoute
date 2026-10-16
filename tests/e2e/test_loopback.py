@@ -154,5 +154,7 @@ def test_cascade_on_the_edge_skips_the_probe_and_stays_inside_the_safe_set(
     for rec in records:
         assert rec["safe"][rec["rep"]]  # free or probed, the choice is inside the safe set
         assert rec["decision"] == table.yhat[rec["window_id"], rec["rep"]]
-    assert load_bundle(bundle_dir).cascade_lam is not None
+    cascade = load_bundle(bundle_dir).cascade
+    assert cascade is not None
+    assert cfg.alpha in cascade
     assert {rec["probed"] for rec in records} <= {True, False}

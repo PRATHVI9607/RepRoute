@@ -67,12 +67,27 @@ Three passes done (implementation; reference model and certificate review; simul
 
 ## What the results say
 
-Fifteen leave-bearings-out folds of the Paderborn 3-class task (three repeats × five folds), and
-the same pipeline on a second dataset (HUST). The hypotheses were fixed before the experiments
+Four datasets, all evaluated leave-units-out: **Paderborn** bearings (15 folds, the main study),
+**HUST** and **UORED** bearings (5 folds each), and **PTB-XL** ECG, where the unit is the patient
+(10 266 patients, 5 folds). The hypotheses were fixed before the experiments
 ([docs/research/hypotheses.md](docs/research/hypotheses.md)); a tested hypothesis counts as
-*supported* only if its threshold is met **and** a Holm test over all eight rejects. None is
-supported in this pass. Full numbers: [results.md](docs/research/results.md),
-[results-hust.md](docs/research/results-hust.md).
+*supported* only if its threshold is met **and** a Holm test over all eight rejects. Full numbers:
+[results.md](docs/research/results.md) (Paderborn), [results-hust.md](docs/research/results-hust.md),
+[results-uored.md](docs/research/results-uored.md), [results-ptbxl.md](docs/research/results-ptbxl.md).
+
+| | Paderborn | HUST | UORED | **PTB-XL** |
+|---|---|---|---|---|
+| Units | 29 bearings | 15 bearings | 20 bearings | **10 266 patients** |
+| Cloud model, macro-F1 on unseen units | 0.60 | 0.64 | 0.75 | 0.67 |
+| Per-window certificate (V0), risk at α = 0.05; folds within α | 0.039; 12/15 | 0.078; 2/5 | 0.079; 2/5 | **0.049; 4/5** |
+| Certified static set, risk at α = 0.05; folds within α | 0.030; 15/15 | 0.027; 4/5 | 0.017; 5/5 | 0.032; 5/5 |
+| Cascade, risk at α = 0.05; folds within α | 0.019; 15/15 | not run | 0.059; 2/5 | 0.024; 5/5 |
+| **H5** mixed menu beats the best single family | 5.6 % | 15.1 %, n.s. | 15.2 %, n.s. | **15.9 %, supported** |
+
+Two patterns hold across all four. The **certified static set keeps its bound everywhere**. The
+**per-window certificate is exactly as good as its calibration units are exchangeable**: on
+PTB-XL, with thousands of patients, it lands on α as the theory predicts; with a handful of
+bearings it is pushed over α by bearing-to-bearing shift.
 
 **The cloud model.** Chosen from about 150 recorded candidates by cross-validation on training
 bearings only ([ADR 0006](docs/adr/0006-envelope-reference-model.md),
@@ -103,7 +118,7 @@ here. Published results on unseen bearings lie between 0.33 and 0.75.
 | **H1** several representations matter | the oracle's main choice is one 16-byte latent in 99.5 % of cells | not supported |
 | **H3** Kai beats the best single representation | cost **3.4 × higher** with the per-window certificate: it holds back about 30 % of windows whose safe set excludes the latent. Deadline misses on bursty links **30 % lower** than the context-blind baseline (target 30 %) | not supported |
 | Certified static safe set (exploratory) | 1.4 × the cost of best-single, with fewer deadline misses (11.7 % against 13.5 %) | — |
-| When edge CPU time is priced (`wired_gateway`, exploratory, 5 folds) | the oracle needs two representations, and Kai is **73 % cheaper** than best-single | the regime where adaptivity pays |
+| When edge CPU time is priced (`wired_gateway`, exploratory, 15 folds) | the oracle needs two representations; per-window Kai is **61 % cheaper** than best-single, the cascade **72 %** (probe on 7.5 % of windows), the static set **78 %** | the regime where state-aware choice pays |
 | **H4** encode cost changes the choice | 0.2 % of loaded cells | not supported |
 | **H5** a mixed menu beats one family | 5.6 % cheaper (target 10 %); on HUST 15.1 %, not significant | not supported |
 | Queue awareness (ablation) | ignoring the uplink queue costs 29 % more | — |

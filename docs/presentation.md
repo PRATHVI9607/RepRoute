@@ -331,15 +331,28 @@ Published bearing-wise results on this dataset lie between 0.33 and 0.75.
 |---|---|
 | Static safe set vs best single representation, bytes priced | 1.4 × the cost, fewer missed deadlines |
 | Cascade vs per-window selector, bytes priced | about 40 % cheaper; the probe runs on 12 % of windows |
-| Per-window selection when **edge CPU time** is priced | **73 % cheaper** than any single representation (5 folds, exploratory) |
+| Choosing by system state when **edge CPU time** is priced (15 folds, exploratory) | per-window **61 %**, cascade **72 %**, static set **78 %** cheaper than any single representation |
 | Missed deadlines vs a context-blind selector, bursty links | 30 % fewer |
 | Queue awareness | ignoring the uplink queue costs 29 % more |
 | Simulator vs real runtime | same choice for 100 % of windows; median latency within 10–17 % |
 | Privacy | a 16-byte latent still identifies a known machine in 59 % of windows |
 
-### 10.4 Hypothesis verdicts
+### 10.4 Four datasets
 
-None of H1–H7 is supported under the strict rule. H2 (the certificate holds) meets its threshold
+| | Paderborn | HUST | UORED | PTB-XL (ECG) |
+|---|---|---|---|---|
+| Units | 29 bearings | 15 bearings | 20 bearings | 10 266 patients |
+| Cloud model macro-F1, unseen units | 0.60 | 0.64 | 0.75 | 0.67 |
+| Static set within α = 0.05 | 15/15 folds | 4/5 | 5/5 | 5/5 |
+| Per-window certificate within α = 0.05 | 12/15 | 2/5 | 2/5 | 4/5, risk 0.049 ≈ α |
+| Mixed menu vs best single family (H5) | +5.6 % | +15.1 % | +15.2 % | **+15.9 %, supported** |
+
+With thousands of patients the per-window certificate lands on α exactly as the theory predicts;
+with a handful of bearings, machine-to-machine shift pushes it over.
+
+### 10.5 Hypothesis verdicts
+
+On the main dataset none of H1–H7 is supported under the strict rule; on PTB-XL, H5 (a mixed menu beats any single family) is supported. H2 (the certificate holds) meets its threshold
 but is not statistically significant with 15 folds. The failures are informative: with one
 vibration channel and byte pricing, a single 16-byte representation is good enough almost
 everywhere, so adaptive choice has little to gain. It pays when CPU time is the scarce resource.
@@ -352,7 +365,7 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 |---|---|
 | A certified, swappable decision layer for edge offloading | built and tested |
 | A cascade runtime that pays for decision-making only when it helps | built; matches the best static policy in its certificate |
-| A map of when adaptive choice pays (by price regime) | measured on one dataset; CPU-priced regime to be confirmed on 15 folds |
+| A map of when adaptive choice pays (by price regime) | measured; the CPU-priced advantage confirmed on 15 folds |
 | An honest benchmark for bearing diagnosis on unseen machines | built, with every model candidate recorded |
 | Validation on real edge hardware (Raspberry Pi) and measured energy | pending hardware |
 | A paper: workshop or benchmark track now; main track after the next steps | in preparation |
@@ -365,7 +378,7 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 |---|---|
 | **9.1** Reliable, resilient infrastructure | Predictive maintenance keeps machines running; the certificate bounds how often compression could hide a fault |
 | **9.4** Resource-efficient, clean technology | Sends as little as 0.2 % of the raw data when that is safe: less bandwidth, radio energy and cloud compute |
-| **9.5** Research and technological capability | Open, reproducible benchmark with an honest evaluation protocol |
+| **9.5** Research and technological capability | Open, reproducible benchmark with an honest evaluation protocol, across four datasets and two sensor domains |
 | **9.c** Access to communication technology | Works on low-bandwidth, metered and intermittent links, where industrial IoT is hardest to deploy |
 
 ---
@@ -385,7 +398,7 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 ## 14. Future work
 
 1. Raspberry Pi runs and measured energy.
-2. Confirm the CPU-priced advantage on all 15 folds.
+2. More units per class on industrial data (no public vibration set has more than 20 machines).
 3. Longer windows (256 ms) with a bearing-physics model (0.64 in cross-validation).
 4. Datasets with many more machines, for machine-level guarantees.
 5. Multi-sensor and multi-task settings, where representations genuinely trade off.

@@ -1,0 +1,7 @@
+# UORED-VAFCLS bearing data, 3-class subset (transfer dataset); paths are relative to KAI_WORK=transfer/uored
+id: uored-v1
+windows: data/processed/uored.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: env  # reference model: envelope-spectrum EnvNet (ADR 0006)
+bottleneck: teacher_front  # R6 encoder: f_raw's front-end + a learned projection (ADR 0006)

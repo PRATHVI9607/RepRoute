@@ -134,8 +134,10 @@ def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
     sample = ws.x[
         np.flatnonzero(table.of("test"))[:: max(1, int(table.of("test").sum()) // 64)][:64]
     ]
-    # one call per window period: the duty cycle the edge really runs at (see `time_ms`)
-    period = 1000.0 * ws.window_n / ws.sample_rate_hz
+    # one call per window period: the duty cycle the edge really runs at (see `time_ms`).
+    # shortcut: periods above 64 ms (ECG: 8.2 s per window) are timed at 64 ms, where the CPU is
+    # already cold (ADR 0004 §4); timing at the true period would take hours, rerun it on the Pi
+    period = min(1000.0 * ws.window_n / ws.sample_rate_hz, 64.0)
     profiles, curves = profile_menu(reps, zoo, sample, repeats, period_ms=period)
     scored = ev.scored_fold(folds[0], seed=int(cfg.seed))
     plan = CostModel(Profiles.from_list(profiles), Overheads(), energy_of(cfg), prices_of(cfg))
@@ -1040,6 +1042,9 @@ def e10_privacy(cfg: DictConfig) -> dict[str, Any]:
         early, late = rank < 0.5, rank >= 0.5
 
         def attack(xa: np.ndarray, ya: np.ndarray, xb: np.ndarray, yb: np.ndarray) -> float:
+            # one operating condition (UORED) or one window per patient (PTB-XL): no attack to run
+            if len(np.unique(ya)) < 2 or not len(xb):
+                return float("nan")
             model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=500))
             return float((model.fit(xa, ya).predict(xb) == yb).mean())
 

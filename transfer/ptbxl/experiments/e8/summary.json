@@ -1,0 +1,13 @@
+{
+ "s1_greedy_safe/us_per_decision": 32.722186666666666,
+ "s1_greedy_safe/decisions_per_s": 30560.304853302387,
+ "s2_mpc_h3/us_per_decision": 103.11586666666666,
+ "s2_mpc_h3/decisions_per_s": 9697.828591526168,
+ "s2_mpc_h4/us_per_decision": 180.171537,
+ "s2_mpc_h4/decisions_per_s": 5550.266244329147,
+ "s2_mpc_h5/us_per_decision": 779.3665113333333,
+ "s2_mpc_h5/decisions_per_s": 1283.0933655196563,
+ "overhead_ms_probe_pred_select": 2.329478,
+ "overhead_vs_cheapest_encoder": 3.3881320445850096,
+ "overhead_share_of_64ms_window": 0.000284360107421875
+}

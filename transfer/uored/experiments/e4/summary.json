@@ -1,0 +1,106 @@
+{
+ "n_boundaries_measured": 9,
+ "n_boundaries_matched": 0,
+ "n_boundaries_theory": 0,
+ "max_rel_error": NaN,
+ "median_latency_model_error": 0.10364037258733717,
+ "boundaries": [
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 526768.0175048246,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 1536025.560610898,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 4632434.967207419,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 8161910.336298077,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 17250359.242239144,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 18158655.55254027,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 53068.361710568475,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 61265.12221793573,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 195127.96010943386,
+   "bps_theory": null,
+   "rel_error": NaN
+  }
+ ],
+ "family/n_theory": 4,
+ "family/n_measured": 2,
+ "family/n_matched": 1,
+ "family/max_rel_error": 0.3802582249567965,
+ "family_boundaries": [
+  {
+   "load": 0.0,
+   "low": "r2b_wavelet",
+   "high": "r0_raw",
+   "bps_measured": 23239235.720805872,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 5948484.982868563,
+   "bps_theory": 9598328.243168507,
+   "rel_error": 0.3802582249567965
+  }
+ ],
+ "latency_model_bias/load0": -0.09633237177055297,
+ "latency_model_bias/load0.8": -0.16888176730122575,
+ "H6_pass": false
+}

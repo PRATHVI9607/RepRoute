@@ -1,0 +1,7 @@
+# PTB-XL ECG lead II, NORM / MI / STTC (transfer dataset); paths relative to KAI_WORK=transfer/ptbxl
+id: ptbxl-v1
+windows: data/processed/ptbxl.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # RawNet CNN: best by inner CV on training patients (experiments/model_search/ptbxl-v1.jsonl)
+bottleneck: generic

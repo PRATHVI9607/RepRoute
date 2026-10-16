@@ -31,3 +31,4 @@
 | [0009](adr/0009-items-not-built.md) | what was deliberately not built (JEPA, MiniRocket, bandit and RL selectors, escalation, …), why, and what would reopen each |
 | [0010](adr/0010-code-audit-fixes.md) | the code audit: the grid simulated one healthy bearing per fold, and the other fixes |
 | [0011](adr/0011-cascade-selector.md) | the cascade selector: one certificate, the probe paid only when it can pay for itself |
+| [0012](adr/0012-more-datasets-and-domains.md) | two more datasets: UORED (20 bearings) and PTB-XL (10 266 patients, a per-patient certificate) |

@@ -1,0 +1,3 @@
+{"dataset": "ptbxl-v1", "candidate": "spec (SpecNet, ADR 0004)", "inner_folds": 3, "train_groups": 4107, "inner_f1_mean": 0.5487877412897694, "inner_f1_per_fold": [0.5630711520966315, 0.5310536170814867, 0.5522384546911897], "seconds": 12.4}
+{"dataset": "ptbxl-v1", "candidate": "env (EnvNet, ADR 0006)", "inner_folds": 3, "train_groups": 4107, "inner_f1_mean": 0.4703629630774187, "inner_f1_per_fold": [0.47342799923908374, 0.49127703249505156, 0.446383857498121], "seconds": 13.0}
+{"dataset": "ptbxl-v1", "candidate": "wave (RawNet CNN, 30 epochs)", "inner_folds": 3, "train_groups": 4107, "inner_f1_mean": 0.667803067736628, "inner_f1_per_fold": [0.6822298820966112, 0.6630918171866448, 0.658087503926628], "seconds": 66.3}
