@@ -32,6 +32,10 @@ experiments/e3*/results.parquet
 experiments/e5*/results.parquet
 experiments/**/*.npz
 experiments/**/*.onnx
+# Raw Docker telemetry is per-run output read by E7d; only its summary is tracked.
+experiments/docker/*.msgpack
+# Local edge-plane diagnostics and scratch tables (see docs/edge-work.md).
+experiments/edge/
 
 # ---- Hydra run directories ---------------------------------------------------------------------
 outputs/
@@ -74,3 +78,5 @@ transfer/*/data/processed/
 transfer/*/artifacts/
 transfer/*/experiments/e3*/results.parquet
 transfer/*/experiments/e5*/results.parquet
+transfer/*/experiments/docker/*.msgpack
+transfer/*/experiments/edge/

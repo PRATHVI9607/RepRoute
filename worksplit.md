@@ -95,9 +95,13 @@ Code: `src/kai/certify/`, `src/kai/select/`, `docs/theory/`.
 
 ## Role D — Systems and emulation
 
+> Branch `edge` covers the laptop-side systems and emulation work only. Pi hardware, arm64 builds,
+> and Pi energy measurements are owned by a separate teammate. See
+> [docs/edge-work.md](docs/edge-work.md) for the branch scope, baseline, and command order.
+
 | Priority | Task | Done when |
 |---|---|---|
-| **P0** | **Raspberry Pi.** Run `scripts/pi_setup.sh`, then `kai exp e1` on the Pi for a real edge profile, and repeat the sim-to-real and overhead experiments with the Pi as the edge. R6's encoder is now a 258-kernel STFT: its cost on a Pi decides whether the 16-byte payload is realistic | Pi profile committed; results have a Pi section |
+| **P0 (teammate)** | **Raspberry Pi.** Run `scripts/pi_setup.sh`, then `kai exp e1` on the Pi for a real edge profile, and repeat the sim-to-real and overhead experiments with the Pi as the edge. R6's encoder is now a 258-kernel STFT: its cost on a Pi decides whether the 16-byte payload is realistic. Owned by a separate teammate; not part of branch `edge` | Pi profile committed; results have a Pi section |
 | P0 | Close the sim-to-real gap: about 1 ms of event-loop and socket time per window on loopback, TCP/IP header bytes at low rates in Docker | E7 and E7d p50 gap ≤ 10 % |
 | P1 | Profile at the node's real duty cycle. Timings are taken at one window per 64 ms; a node with 32 sensors is never idle, so its caches are warm and the cold timings overstate its cost. Measure before changing the model | E1 reports timings at 64, 8 and 2 ms periods; E3 uses the matching one |
 | P1 | Replace the load exponent with a capacity model. Fitted exponents are near 0, yet measured latency at load 0.8 is 41 % above the model | E4 model bias within ±10 % at both loads |

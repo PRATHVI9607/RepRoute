@@ -3,6 +3,7 @@
 | Read this | To learn |
 |---|---|
 | [architecture.md](architecture.md) | how the lab, edge and cloud planes fit together; the packages; the wire protocol |
+| [edge-work.md](edge-work.md) | scope, baseline, and command order for the laptop-side edge/emulation work on branch `edge` |
 | [glossary.md](glossary.md) | what each term means (agreement is not accuracy; risk is not an SLO violation) |
 | [theory/proposition1.md](theory/proposition1.md) | the certify-then-optimize guarantee and its proof |
 | [theory/regime-theory.md](theory/regime-theory.md) | break-even bandwidths and the phase diagram |
