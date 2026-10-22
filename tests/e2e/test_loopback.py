@@ -10,6 +10,7 @@ import pytest
 
 from kai.cloud.heads import HeadZoo
 from kai.cloud.server import CloudServer
+from kai.contracts.representation import REP_CODES
 from kai.contracts.schemas import EnergyModel, Prices
 from kai.contracts.windows import WindowSet
 from kai.edge.bundle import BundleError, load_bundle
@@ -24,13 +25,20 @@ ENERGY = EnergyModel(p_cpu_w=1.0, e_bit_j=1e-7)
 
 
 def loop(
-    bundle_dir, ws: WindowSet, table: Table, cfg: EdgeConfig, n: int = 60, selector=None, zoo=None
+    bundle_dir,
+    ws: WindowSet,
+    table: Table,
+    cfg: EdgeConfig,
+    n: int = 60,
+    selector=None,
+    zoo=None,
+    on_decision=None,
 ):
     """Run cloud and edge in one event loop on an ephemeral port; return the edge records."""
     test_ids = np.flatnonzero(table.of("test"))[:n]
 
     async def main():
-        server = CloudServer(zoo or HeadZoo(bundle_dir))
+        server = CloudServer(zoo or HeadZoo(bundle_dir), on_decision=on_decision)
         srv = await asyncio.start_server(server.serve_client, "127.0.0.1", 0)
         port = srv.sockets[0].getsockname()[1]
         try:
@@ -158,3 +166,39 @@ def test_cascade_on_the_edge_skips_the_probe_and_stays_inside_the_safe_set(
     assert cascade is not None
     assert cfg.alpha in cascade
     assert {rec["probed"] for rec in records} <= {True, False}
+
+
+def test_loopback_with_telemetry_callback(bundle_dir, fold_dir, ws: WindowSet) -> None:
+    table = Table.load(fold_dir / "table.npz")
+    cfg = EdgeConfig(alpha=0.10, deadline_ms=500, period_ms=8, shape_bps=2e7, load=0.0)
+    events: list[dict] = []
+
+    def on_decision(wid, rep_id, dec, dec_ms, head_ms, cloud_ms):
+        events.append({
+            "window_id": wid,
+            "rep_id": rep_id,
+            "decision": dec,
+            "measured_cloud_dec_ms": dec_ms,
+            "measured_cloud_head_ms": head_ms,
+            "cloud_ms": cloud_ms,
+        })
+
+    records = loop(bundle_dir, ws, table, cfg, n=15, on_decision=on_decision)
+    assert len(records) == 15
+    assert len(events) >= 15
+
+    # Check each event's fields and match against returned edge records
+    events_by_key = {(e["window_id"], e["rep_id"]): e for e in events}
+    zoo = HeadZoo(bundle_dir)
+    code_to_rep_id = {zoo.reps[r].rep_code: r for r in zoo.reps} if hasattr(zoo, "rep_codes") else {
+        REP_CODES[r]: r for r in zoo.reps
+    }
+    for rec in records:
+        expected_rep_id = code_to_rep_id[rec["rep_code"]]
+        key = (rec["window_id"], expected_rep_id)
+        assert key in events_by_key
+        ev = events_by_key[key]
+        assert ev["decision"] == rec["decision"]
+        assert ev["cloud_ms"] == rec["cloud_ms"]
+        assert ev["measured_cloud_dec_ms"] >= 0.0
+        assert ev["measured_cloud_head_ms"] >= 0.0
