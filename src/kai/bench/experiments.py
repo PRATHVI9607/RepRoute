@@ -794,14 +794,13 @@ def _bundle_provenance(bundle: Bundle) -> dict[str, str]:
     return out
 
 
-def _finish_h7(
-    name: str,
-    cfg: DictConfig,
+def _h7_summary(
     backend: str,
     rows: list[dict[str, float]],
     bundle: Bundle | None = None,
+    selector: str | None = None,
 ) -> dict[str, Any]:
-    """H7 verdict from the comparison rows: p50 within 10 %, same choice for ≥ 85 % of windows."""
+    """H7 verdict plus the artifact and selector that produced it."""
     frame = pd.DataFrame(rows)
     summary: dict[str, Any] = {
         "backend": backend,
@@ -811,10 +810,25 @@ def _finish_h7(
     }
     if bundle is not None:
         summary.update(_bundle_provenance(bundle))
+    if selector is not None:
+        summary["selector"] = selector
     summary["H7_pass"] = bool(
         summary["max_p50_rel_gap"] <= 0.10 and summary["min_selection_agreement"] >= 0.85
     )
-    return finish(name, cfg, summary, frame)
+    return summary
+
+
+def _finish_h7(
+    name: str,
+    cfg: DictConfig,
+    backend: str,
+    rows: list[dict[str, float]],
+    bundle: Bundle | None = None,
+    selector: str | None = None,
+) -> dict[str, Any]:
+    """Write the H7 summary and register the run."""
+    summary = _h7_summary(backend, rows, bundle, selector)
+    return finish(name, cfg, summary, pd.DataFrame(rows))
 
 
 def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
@@ -831,6 +845,7 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
     phi = table.phi[pick].astype(np.float64)
     work = Workload(bundle.predictor.predict(phi), phi, table.d[pick], table.payload_bytes[pick])
     period = window_period_ms(cfg)
+    selector = "s1_greedy_safe"
     rows = []
     with cloud_process(path) as port:
         for bps in (256e3, 1e6, 5e6):
@@ -839,6 +854,7 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
                 deadline_ms=250.0,
                 period_ms=period,
                 load=0.0,
+                selector=selector,
                 shape_bps=bps,
                 initial_bps=bps,
                 mission=cfg.profile.mission,
@@ -854,7 +870,7 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
             )
             rows.append(_sim_vs_real(recs, sim, bps))
     backend = "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi)"
-    return _finish_h7("e7", cfg, backend, rows, bundle)
+    return _finish_h7("e7", cfg, backend, rows, bundle, selector=selector)
 
 
 _RATE_UNITS = {"kbit": 1e3, "mbit": 1e6}
@@ -882,6 +898,7 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
     files = sorted((work() / "experiments" / "docker").glob("telemetry_*.msgpack"))
     if not files:
         raise FileNotFoundError("no Docker telemetry: run `make docker-loop BUNDLE=… FOLD=…` first")
+    selector = "s1_greedy_safe"
     rows = []
     for path in files:
         value, unit = re.fullmatch(r"telemetry_(\d+)(kbit|mbit)", path.stem).groups()  # type: ignore[union-attr]
@@ -893,7 +910,12 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
             bundle.predictor.predict(phi), phi, table.d[ids], table.payload_bytes[ids]
         )
         edge_cfg = EdgeConfig(
-            alpha=alpha, deadline_ms=250.0, period_ms=period, load=0.0, mission=bundle.mission
+            alpha=alpha,
+            deadline_ms=250.0,
+            period_ms=period,
+            load=0.0,
+            selector=selector,
+            mission=bundle.mission,
         )
         sim = simulate(
             Scenario(tr.static(bps), 250.0, 0.0, 1, period, rtt_ms=delay_ms),
@@ -904,7 +926,7 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
         )
         rows.append(_sim_vs_real(recs, sim, bps))
     backend = "Docker containers, tc netem rate + delay on the edge egress, same laptop"
-    return _finish_h7("e7d", cfg, backend, rows, bundle)
+    return _finish_h7("e7d", cfg, backend, rows, bundle, selector=selector)
 
 
 def e8_overhead(cfg: DictConfig, n: int = 3000) -> dict:

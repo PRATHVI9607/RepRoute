@@ -30,12 +30,21 @@ from kai.select.base import NO_REP, Decision, Mission, Selector, Window
 from kai.select.cost import CostModel, Profiles, State
 from kai.select.policies import CascadeSafe, GreedySafe, MpcSafe
 
+SELECTOR_NAMES = ("s1_greedy_safe", "s2_mpc_safe", "s1_cascade")
+
+
+def _validate_selector(selector: str) -> None:
+    """Fail closed: a typo must not silently run a different policy."""
+    if selector not in SELECTOR_NAMES:
+        expected = ", ".join(repr(name) for name in SELECTOR_NAMES)
+        raise ValueError(f"unknown selector {selector!r}; expected one of {expected}")
+
 
 @dataclass(frozen=True)
 class EdgeConfig:
     alpha: float = 0.05
     variant: Variant = "v0"
-    selector: str = "s1_greedy_safe"  # or "s2_mpc_safe", "s1_cascade" (ADR 0011)
+    selector: str = "s1_greedy_safe"  # one of SELECTOR_NAMES
     mission: Mission = "fidelity_first"
     deadline_ms: float = 250.0
     period_ms: float = 64.0
@@ -49,6 +58,11 @@ class EdgeConfig:
     probe_s: float = 1.0  # an idle link forwards one cached window this often to re-measure itself
     seed: int = 0
 
+    def __post_init__(self) -> None:
+        _validate_selector(self.selector)
+        if self.selector == "s1_cascade" and (self.use_aci or self.use_drift):
+            raise ValueError("the cascade certificate supports neither ACI nor the drift monitor")
+
 
 MIN_SAMPLE_BYTES = 1000  # smaller frames cannot measure throughput (see `Edge._acks`)
 
@@ -58,6 +72,7 @@ class NeedsBundleError(RuntimeError):
 
 
 def build_certifier(bundle: Bundle, cfg: EdgeConfig) -> Certifier:
+    _validate_selector(cfg.selector)
     drift = DriftMonitor(bundle.phi_ref) if cfg.use_drift else None
     if cfg.selector == "s1_cascade":
         if bundle.cascade is None:
@@ -86,12 +101,15 @@ def build_certifier(bundle: Bundle, cfg: EdgeConfig) -> Certifier:
 def build_selector(
     bundle: Bundle, cfg: EdgeConfig, prices: Prices, energy: EnergyModel
 ) -> Selector:
+    _validate_selector(cfg.selector)
     plan = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
+    if cfg.selector == "s1_greedy_safe":
+        return GreedySafe(plan, cfg.mission)
     if cfg.selector == "s2_mpc_safe":
         return MpcSafe(plan, cfg.period_ms, mission=cfg.mission)
     if cfg.selector == "s1_cascade":
         return CascadeSafe(plan, cfg.mission)
-    return GreedySafe(plan, cfg.mission)
+    raise ValueError(f"selector {cfg.selector!r} has no implementation")
 
 
 class Edge:

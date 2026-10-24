@@ -75,6 +75,18 @@ the profile twice.
 reads. Those raw telemetry files are local run outputs and are not tracked; the E7d summary and
 results remain tracked so `make report` does not need the containers.
 
+## Selector configuration
+
+`EdgeConfig.selector` accepts exactly `s1_greedy_safe`, `s2_mpc_safe`, and `s1_cascade`.
+Construction now fails closed on a typo, and on `s1_cascade` combined with ACI or the drift
+monitor. `build_selector` and `build_certifier` repeat the check, so a direct caller cannot
+silently fall back to greedy. `tests/unit/test_edge_selector_config.py` covers all three
+builders and the invalid combinations; no selector decision or experiment result changed.
+
+E7/E7d summaries now record the selector name alongside the bundle and profile provenance. The
+summaries committed before this change predate the field; they were not rerun, so their `H7`
+results are unchanged.
+
 ## Where outputs live
 
 - `artifacts/folds/`, `artifacts/bundles/`, `artifacts/profiles/`: ignored, regenerate with the

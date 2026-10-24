@@ -22,6 +22,7 @@ this ledger was written. No hypothesis threshold was changed to produce any resu
 | Bundle profile hash | `e31425b47743c64ef4c2bc306b5fe381ea5ebccbb75b8db17f5bcc132d256c33` |
 | Bundle git SHA | `a4ad4088f4cb2e83c924660d7124adc5ca4d7dbe` |
 | Selected representation | `r7_vq`: 16 B payload, 44 B frame |
+| E7/E7d selector | `s1_greedy_safe` (new summaries record it as `selector`) |
 | Small-frame rate policy | keep the configured `initial_bps` prior; ADR 0015 |
 | Loopback backend | in-process token-bucket pacer, no Pi |
 | Docker backend | containers, `tc netem` rate + 10 ms delay |
@@ -33,7 +34,7 @@ that identify them are committed. Raw Docker telemetry (`experiments/docker/*.ms
 
 | Check | Result |
 |---|---|
-| `make check` | lint, import contracts, mypy, and **134 tests** pass |
+| `make check` | lint, import contracts, mypy, and **145 tests** pass |
 | `make mini-paper` | **9 passed**, 5 expected sklearn `ConvergenceWarning`s, 132.64 s |
 | `make figures` | all seven figures regenerated |
 | `make report` | `docs/research/results.md` regenerated |
@@ -42,9 +43,14 @@ that identify them are committed. Raw Docker telemetry (`experiments/docker/*.ms
 The test count includes the new edge tests:
 
 - `tests/unit/test_edge_pacing.py`
+- `tests/unit/test_edge_selector_config.py`
 - `tests/unit/test_experiment_metadata.py`
 - `tests/unit/test_profile_selection.py`
 - zero-bandwidth coverage in `tests/unit/test_analysis.py`
+
+The selector hardening pass rejects unknown selector names and `s1_cascade` combined with
+ACI/drift at configuration time, and records the selector in new E7/E7d summaries. It changes no
+experiment metric; the numbers below remain the `92a90ff` run.
 
 ## Hypothesis summary
 
@@ -342,6 +348,7 @@ Source: [`experiments/e7/summary.json`](../experiments/e7/summary.json)
 
 Backend: loopback sockets, token-bucket pacing, same laptop as the DES, no Pi.
 Bundle: `bb809ab9f5c8`; profile SHA: `e31425b4...`; bundle git SHA: `a4ad4088...`.
+Selector: `s1_greedy_safe` (the committed summary predates the `selector` field).
 
 `H7_pass = false`. Current summary (the later of two runs):
 
@@ -363,6 +370,7 @@ Source: [`experiments/e7d/summary.json`](../experiments/e7d/summary.json)
 
 Backend: Docker containers, `tc netem` rate + 10 ms delay on the edge egress, same laptop.
 Bundle: `bb809ab9f5c8`; profile SHA: `e31425b4...`; bundle git SHA: `a4ad4088...`.
+Selector: `s1_greedy_safe` (the committed summary predates the `selector` field).
 
 `H7_pass = true`; `max_p50_rel_gap = 0.021872`; `min_selection_agreement = 1.0`.
 
