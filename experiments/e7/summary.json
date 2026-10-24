@@ -1,41 +1,44 @@
 {
  "backend": "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi)",
- "max_p50_rel_gap": 0.050378110587366846,
+ "max_p50_rel_gap": 0.4228272441011884,
  "min_selection_agreement": 1.0,
  "rows": [
   {
    "bandwidth_bps": 256000.0,
-   "p50_real_ms": 3.648865499940257,
-   "p50_sim_ms": 3.6896384999991483,
-   "p50_rel_gap": 0.011174158121081433,
-   "p95_real_ms": 4.012592450158081,
-   "p95_sim_ms": 3.6896385000000365,
+   "p50_real_ms": 2.9818455000167887,
+   "p50_sim_ms": 3.6765454999994063,
+   "p50_rel_gap": 0.2329765240951304,
+   "p95_real_ms": 3.3855367502837908,
+   "p95_sim_ms": 3.6765455000002945,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 256000.0
   },
   {
    "bandwidth_bps": 1000000.0,
-   "p50_real_ms": 2.538741499961361,
-   "p50_sim_ms": 2.666638499999152,
-   "p50_rel_gap": 0.050378110587366846,
-   "p95_real_ms": 2.9609570498223547,
-   "p95_sim_ms": 2.6666385000000403,
+   "p50_real_ms": 1.9174869994458277,
+   "p50_sim_ms": 2.65354549999941,
+   "p50_rel_gap": 0.38386622739362014,
+   "p95_real_ms": 2.37511810032629,
+   "p95_sim_ms": 2.6535455000002983,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 1000000.0
   },
   {
    "bandwidth_bps": 5000000.0,
-   "p50_real_ms": 2.284621500052708,
-   "p50_sim_ms": 2.3850384999999363,
-   "p50_rel_gap": 0.04395345134627836,
-   "p95_real_ms": 2.737800549982694,
-   "p95_sim_ms": 2.3850385000001584,
+   "p50_real_ms": 1.6670650002197362,
+   "p50_sim_ms": 2.3719455000001943,
+   "p50_rel_gap": 0.4228272441011884,
+   "p95_real_ms": 2.105757600565994,
+   "p95_sim_ms": 2.3719455000001943,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 5000000.0
   }
  ],
- "H7_pass": true
+ "bundle_id": "bb809ab9f5c8",
+ "bundle_git_sha": "a4ad4088f4cb2e83c924660d7124adc5ca4d7dbe",
+ "profiles_sha256": "e31425b47743c64ef4c2bc306b5fe381ea5ebccbb75b8db17f5bcc132d256c33",
+ "H7_pass": false
 }

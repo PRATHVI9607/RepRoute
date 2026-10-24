@@ -16,21 +16,22 @@ It does not change the ML models, the certificate, the hypothesis thresholds, or
 
 ## Current baseline
 
-Measured from the real Paderborn folds on 2026-10-24, after the loopback pacer fix (ADR 0013) and
-a fresh profile/bundle (`801b7bb6c1a9`):
+Measured from the real Paderborn folds on 2026-10-24 under the pinned `performance` profile
+(`power-profiles-daemon`; [ADR 0014](adr/0014-performance-timing-regime.md)) and bundle
+`bb809ab9f5c8`:
 
 | Check | Result |
 |---|---|
 | Real folds | 5 folds; mean `f_raw` macro-F1 0.608 |
-| E1 profile (latest) | probe + predictor + selector 1.053 ms; `t_io` 0.050 ms (at the floor); R6 encode 0.970 ms. The load-0 calibration was −0.034 ms (the model overpredicted) and the load-0.8 excess was 4.968 ms, so the calibration is noisy |
-| E7 loopback | **H7 true**: p50 gap 1.1 / 5.0 / 4.4% at 256k / 1M / 5M; max 5.0%; selection agreement 1.0. The preceding run measured 1.3 / 2.2 / 5.4% (max 5.4%), so the pass is repeatable on this profile |
-| E7d Docker | **H7 true**: p50 gap 1.0 / 6.1 / 1.3% at 1M / 256k / 5M; max 6.1%; selection agreement 1.0; 300 windows per rate |
-| E4 phase (pre-refresh) | **H6 false**: max boundary error 82.4% at load 0.8; median latency-model error 10.3%; aggregate latency bias +3.6% at load 0 and −1.7% at load 0.8. Rerun against the new bundle |
-| E6 drift (pre-refresh) | L1 only; no L2 folds exist. Drift fired on 97.1% of L1 test windows |
-| E8 overhead (pre-refresh) | 0.898 ms probe + predictor + selector; 2.0× the cheapest encoder. The new profile's overhead is 1.053 ms, so E8 needs a rerun |
+| E1 profile | probe + predictor + selector 1.0715 ms; `t_io` 0.050 ms (at the floor); R6 encode 0.900 ms. The load-0 calibration was −0.371 ms (the model overpredicted) and the load-0.8 excess was 1.897 ms; `io_load_exponent` is 2.259 |
+| E4 phase | **H6 true**: maximum representative-boundary error 4.7%; median latency-model error 7.2%; aggregate latency bias −6.8% at load 0 and −10.1% at load 0.8. The separate family-boundary check still has a 65.6% maximum error |
+| E7 loopback | **H7 false** in two runs: p50 gap 6.3 / 16.0 / 20.5% and 23.3 / 38.4 / 42.3% at 256k / 1M / 5M; selection agreement 1.0. The model overpredicts real latency, and the real edge time varies materially between runs |
+| E7d Docker | **H7 true**: p50 gap 2.2 / 1.4 / 0.5% at 1M / 256k / 5M; selection agreement 1.0; 300 windows per rate. The 10 ms netem delay dominates the edge-time model bias |
+| E8 overhead | 1.0715 ms probe + predictor + selector; 13.7 µs per greedy decision and 43.0 / 75.3 / 294.2 µs per MPC h3/h4/h5 decision; 2.738× the cheapest encoder |
+| E6 drift | L1 only; no L2 folds exist. Drift fired on 97.1% of L1 test windows |
 | Selected representation | `r7_vq`: 16 B payload, 44 B frame |
 | Rate estimate | stays at the 1 Mbit/s prior because frames are below `MIN_SAMPLE_BYTES` |
-| Broader suite (pre-refresh) | H1/H3 (E3), H2a/H2b (E2), and H4/H5 (E5 and E5pi) also failed; E10 is descriptive |
+| Broader suite | H1/H3 (E3), H2a/H2b (E2), and H4/H5 (E5 and E5pi) also failed; E10 is descriptive |
 
 The loopback pacer originally used asyncio's `call_later`, whose ~1 ms timer resolution dominated a
 44 B frame and produced the earlier 28–38% E7 gap. `Edge._send` now uses a precise sleep and
@@ -38,24 +39,36 @@ subtracts that wait from `edge_ms`; the change is documented in
 [ADR 0013](adr/0013-loopback-pacer-and-io-calibration.md). E7d never used the in-process pacer
 (`shape_bps=None`), but it was rerun because the profile and bundle changed.
 
-The profile itself moved materially between runs (overhead 0.90 → 1.053 ms, R6 0.784 → 0.970 ms)
-while the machine stayed on the `powersave` governor. E7/E7d pass on this profile, but the remaining
-pre-refresh experiments must not be quoted as if they used it.
+The earlier `powersave` baseline (`801b7bb6c1a9`) passed E7 at 1.1 / 5.0 / 4.4% and failed E4 at
+82.4%. Under the pinned `performance` profile the edge is faster: E4 now matches the model, while
+loopback E7 exposes a high-rate overprediction that the `powersave` run did not. Docker E7d still
+passes because netem's fixed delay leaves less of the total latency for the edge term to explain.
+This is a backend-sensitive result, not a threshold change; both outcomes are kept in the registry.
+
+A second E7 run immediately after the suite produced larger gaps (23.3 / 38.4 / 42.3%) even though
+the bundle and DES side were unchanged. The real p50 fell further while the simulated p50 stayed
+fixed. That is measurement variance, not evidence for a model change. H7 stays false in both runs,
+and E7d remains the only backend that passes.
 
 ## Workflow
 
 Keep this order so the bundle matches the profile used by the real runs:
 
 ```bash
-make profile
+powerprofilesctl set performance   # record the regime; verify 16/16 governor + EPP
 make folds FOLDS=5
-make experiments
+make experiments                  # includes the E1 profile; does not run E7d
 uv run --no-sync kai replay artifacts/folds/<split>/s0_r0f0 data/processed/replay.npz --n 300
 uv run --no-sync kai bundle artifacts/folds/<split>/s0_r0f0
 BUNDLE=artifacts/bundles/<id> FOLD=artifacts/folds/<split>/s0_r0f0 make docker-loop
 make figures
 make report
 ```
+
+`power-profiles-daemon` owns the governor on this laptop; a bare `cpupower frequency-set` is
+temporarily overridden and is not enough to record a stable regime. `make experiments` already
+runs E1, so do not place a separate `make profile` before it unless you are deliberately measuring
+the profile twice.
 
 `make docker-loop` regenerates `experiments/docker/telemetry_*.msgpack`, which `kai exp e7d`
 reads. Those raw telemetry files are local run outputs and are not tracked; the E7d summary and
@@ -72,25 +85,29 @@ results remain tracked so `make report` does not need the containers.
 
 ## Open work
 
-1. **Refresh the remaining experiments.** E4, E6, E8, E10 and the wider E2/E3/E5 suite predate the
-   pacer fix and the new profile. Rerun them before quoting their numbers; E4's phase-boundary
-   failure and E6's missing L2 folds remain open.
-2. **Timing stability (P1).** `t_io` hit its 0.05 ms floor and the load-0 calibration was negative,
-   while the profile moved by roughly 17% between runs. Pin the governor or repeat the profile
-   several times before treating a small gap as a real improvement.
+1. **Loopback E7 model bias (P0).** With the faster `performance` profile the DES overpredicts
+   loopback latency at 1 and 5 Mbit/s; Docker E7d passes because its fixed delay dominates. Do not
+   tune the capacity model to recover H7. First decide whether loopback is a valid backend for the
+   claim, or whether a principled transport term needs its own pre-registered ADR.
+2. **Timing stability.** The governor is pinned, the profile is recorded, and `t_io` is still at its
+   0.05 ms floor. Repeat E1 several times under `performance` to quantify the remaining variance;
+   one profile is not evidence that a small gap is stable.
 3. **Small-frame rate estimation (P1).** The edge never updates its bandwidth estimate for 16 B
    payloads. Decide whether to keep the prior, use ACK timing, or probe periodically.
-4. **Duty cycle (P1).** E1 now has 1-, 8-, and 32-sensor timings; verify E3 actually selects the
+4. **Duty cycle (P1).** E1 has 1-, 8-, and 32-sensor timings; verify E3 actually selects the
    matching profile at each node size.
-5. **Load/phase model (P1).** The pre-refresh aggregate latency bias was inside ±10%, but the
-   measured phase boundaries failed at load 0.8 (82.4% max error). Investigate the boundary
-   procedure before changing the capacity model.
+5. **E4 family boundaries (P1).** H6 now passes on its representative boundaries, but the separate
+   family-boundary check has a 65.6% maximum error. Investigate the boundary procedure before
+   changing the capacity model.
 6. **L2 drift study.** E6 produced only L1 because no L2 folds exist under `artifacts/folds`.
    Build L2 folds if the L2 drift result is in scope.
 7. **Zero-bandwidth warnings.** E3/E5 emit `divide by zero` warnings at grid cells with
    `bandwidth_bps == 0`. Decide whether those cells are intentional and guard the cost model so
    the warnings do not hide real failures.
+8. **Bundle provenance.** E7/E7d summaries do not record the profile hash or bundle ID. Add them so
+   the cloud/lab/Pi handoff can identify the exact timing regime and artifact set.
 
 Model changes need an ADR dated before the result is inspected. A failed hypothesis stays failed;
-the 10% threshold is not adjusted to make the result pass. The pacer fix and the refreshed
-calibration are recorded in [ADR 0013](adr/0013-loopback-pacer-and-io-calibration.md).
+the 10% threshold is not adjusted to make the result pass. The pacer fix, calibration, and timing
+regime are recorded in [ADR 0013](adr/0013-loopback-pacer-and-io-calibration.md) and
+[ADR 0014](adr/0014-performance-timing-regime.md).

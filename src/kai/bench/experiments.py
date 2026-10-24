@@ -785,8 +785,21 @@ def _sim_vs_real(recs: list[dict[str, Any]], sim: Result, bps: float) -> dict[st
     }
 
 
+def _bundle_provenance(bundle: Bundle) -> dict[str, str]:
+    """Artifact identifiers needed to reproduce a real-socket run."""
+    manifest = bundle.manifest
+    out = {"bundle_id": manifest.bundle_id, "bundle_git_sha": manifest.git_sha}
+    if "profiles.json" in manifest.files:
+        out["profiles_sha256"] = manifest.files["profiles.json"]
+    return out
+
+
 def _finish_h7(
-    name: str, cfg: DictConfig, backend: str, rows: list[dict[str, float]]
+    name: str,
+    cfg: DictConfig,
+    backend: str,
+    rows: list[dict[str, float]],
+    bundle: Bundle | None = None,
 ) -> dict[str, Any]:
     """H7 verdict from the comparison rows: p50 within 10 %, same choice for ≥ 85 % of windows."""
     frame = pd.DataFrame(rows)
@@ -796,6 +809,8 @@ def _finish_h7(
         "min_selection_agreement": float(frame.selection_agreement.min()),
         "rows": rows,
     }
+    if bundle is not None:
+        summary.update(_bundle_provenance(bundle))
     summary["H7_pass"] = bool(
         summary["max_p50_rel_gap"] <= 0.10 and summary["min_selection_agreement"] >= 0.85
     )
@@ -839,7 +854,7 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
             )
             rows.append(_sim_vs_real(recs, sim, bps))
     backend = "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi)"
-    return _finish_h7("e7", cfg, backend, rows)
+    return _finish_h7("e7", cfg, backend, rows, bundle)
 
 
 _RATE_UNITS = {"kbit": 1e3, "mbit": 1e6}
@@ -889,7 +904,7 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
         )
         rows.append(_sim_vs_real(recs, sim, bps))
     backend = "Docker containers, tc netem rate + delay on the edge egress, same laptop"
-    return _finish_h7("e7d", cfg, backend, rows)
+    return _finish_h7("e7d", cfg, backend, rows, bundle)
 
 
 def e8_overhead(cfg: DictConfig, n: int = 3000) -> dict:

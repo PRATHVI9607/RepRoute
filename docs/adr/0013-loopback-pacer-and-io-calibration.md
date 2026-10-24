@@ -52,6 +52,14 @@ After `make profile` and the bundle rebuild (`801b7bb6c1a9`), E7 passed twice wi
 profile moved between runs (overhead 0.90 → 1.053 ms, R6 0.784 → 0.970 ms), so this is one profile,
 not a claim that the gap is stable to a percentage point; the edge work log records the caveat.
 
+## Addendum (2026-10-24, pinned `performance` profile)
+
+The validation above is specific to the earlier `powersave` profile. After the timing regime was
+pinned to `performance` ([ADR 0014](0014-performance-timing-regime.md)), the edge became faster:
+E4 passed H6, but loopback E7 failed H7 (20.5% and 42.3% max p50 gap in two runs) while Docker E7d
+still passed at 2.2%. The pacer decision is unchanged; the backend-sensitive H7 result is recorded
+in ADR 0014 and `docs/research/results.md`.
+
 ## Limits
 
 - The calibration still uses a 20 Mbit/s link and the smallest representation; E7 tests the other

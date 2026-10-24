@@ -1,41 +1,44 @@
 {
  "backend": "Docker containers, tc netem rate + delay on the edge egress, same laptop",
- "max_p50_rel_gap": 0.060971272734858355,
+ "max_p50_rel_gap": 0.021871743001912455,
  "min_selection_agreement": 1.0,
  "rows": [
   {
    "bandwidth_bps": 1000000.0,
-   "p50_real_ms": 7.742946000007578,
-   "p50_sim_ms": 7.666638499999934,
-   "p50_rel_gap": 0.009855099080836855,
-   "p95_real_ms": 8.341669899857607,
-   "p95_sim_ms": 7.66663850000171,
+   "p50_real_ms": 7.824684999377496,
+   "p50_sim_ms": 7.653545500000192,
+   "p50_rel_gap": 0.021871743001912455,
+   "p95_real_ms": 8.774706299800528,
+   "p95_sim_ms": 7.653545500000192,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 1000000.0
   },
   {
    "bandwidth_bps": 256000.0,
-   "p50_real_ms": 9.253857999965476,
-   "p50_sim_ms": 8.68963849999993,
-   "p50_rel_gap": 0.060971272734858355,
-   "p95_real_ms": 9.777979550074178,
-   "p95_sim_ms": 8.689638500001706,
+   "p50_real_ms": 8.803530499790213,
+   "p50_sim_ms": 8.676545500000188,
+   "p50_rel_gap": 0.014424326671333873,
+   "p95_real_ms": 10.021664850273737,
+   "p95_sim_ms": 8.676545500000188,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 1000000.0
   },
   {
    "bandwidth_bps": 5000000.0,
-   "p50_real_ms": 7.28973549996681,
-   "p50_sim_ms": 7.385038500000718,
-   "p50_rel_gap": 0.01307358820280136,
-   "p95_real_ms": 7.947386100056519,
-   "p95_sim_ms": 7.385038500000718,
+   "p50_real_ms": 7.408154000131617,
+   "p50_sim_ms": 7.371945500000088,
+   "p50_rel_gap": 0.004887654890933155,
+   "p95_real_ms": 8.207753550777852,
+   "p95_sim_ms": 7.371945500000976,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
    "bandwidth_estimate_real_bps": 1000000.0
   }
  ],
+ "bundle_id": "bb809ab9f5c8",
+ "bundle_git_sha": "a4ad4088f4cb2e83c924660d7124adc5ca4d7dbe",
+ "profiles_sha256": "e31425b47743c64ef4c2bc306b5fe381ea5ebccbb75b8db17f5bcc132d256c33",
  "H7_pass": true
 }
