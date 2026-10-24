@@ -2,7 +2,8 @@
 
 This branch covers the laptop-side systems and emulation work for Role D. The Raspberry Pi profile,
 arm64 image builds, and Pi energy measurements are owned by a separate teammate and are out of
-scope here.
+scope here. The full metric ledger is in [edge-results.md](edge-results.md); the compact baseline
+and work plan stay in this document.
 
 ## What this branch is for
 
