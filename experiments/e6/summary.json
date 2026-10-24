@@ -9,5 +9,14 @@
  "L1/bytes_aci": 187.0864190713554,
  "L1/audit_bytes": 142.37374787859338,
  "L1/risk_audit_estimate": 0.0,
- "L1/drift_fired": 0.9714537784596287
+ "L1/drift_fired": 0.9714537784596287,
+ "L2/n_folds": 5,
+ "L2/safe_set_risk_static": 0.12750938461417274,
+ "L2/policy_risk_static": 0.009120598563762261,
+ "L2/policy_risk_aci": 0.008693242233102142,
+ "L2/bytes_static": 447.7494276253885,
+ "L2/bytes_aci": 357.9540423370266,
+ "L2/audit_bytes": 147.36597551101949,
+ "L2/risk_audit_estimate": 0.012080363247008471,
+ "L2/drift_fired": 0.8851347040798958
 }

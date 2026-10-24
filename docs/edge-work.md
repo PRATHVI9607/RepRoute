@@ -28,7 +28,7 @@ Measured from the real Paderborn folds on 2026-10-24 under the pinned `performan
 | E7 loopback | **H7 false** in two runs: p50 gap 6.3 / 16.0 / 20.5% and 23.3 / 38.4 / 42.3% at 256k / 1M / 5M; selection agreement 1.0. The model overpredicts real latency, and the real edge time varies materially between runs |
 | E7d Docker | **H7 true**: p50 gap 2.2 / 1.4 / 0.5% at 1M / 256k / 5M; selection agreement 1.0; 300 windows per rate. The 10 ms netem delay dominates the edge-time model bias |
 | E8 overhead | 1.0715 ms probe + predictor + selector; 13.7 µs per greedy decision and 43.0 / 75.3 / 294.2 µs per MPC h3/h4/h5 decision; 2.738× the cheapest encoder |
-| E6 drift | L1 only; no L2 folds exist. Drift fired on 97.1% of L1 test windows |
+| E6 drift | L1 and L2 now. Drift fired on 97.1% of L1 and 88.5% of L2 test windows. L2 static safe-set risk 12.75% at α=5%; certified policy risk 0.91% static vs 0.87% with ACI; bytes 448 static vs 358 ACI, with 147 audit bytes |
 | Selected representation | `r7_vq`: 16 B payload, 44 B frame |
 | Rate estimate | stays at the 1 Mbit/s prior because frames are below `MIN_SAMPLE_BYTES` |
 | Broader suite | H1/H3 (E3), H2a/H2b (E2), and H4/H5 (E5 and E5pi) also failed; E10 is descriptive |
@@ -101,8 +101,10 @@ results remain tracked so `make report` does not need the containers.
 5. **E4 family boundaries (P1).** H6 now passes on its representative boundaries, but the separate
    family-boundary check has a 65.6% maximum error. Investigate the boundary procedure before
    changing the capacity model.
-6. **L2 drift study.** E6 produced only L1 because no L2 folds exist under `artifacts/folds`.
-   Build L2 folds if the L2 drift result is in scope.
+6. **L2 drift study (resolved).** The five L2 folds were trained and E6 now reports both levels.
+   The L2 static safe-set risk is 12.75% at α=5%, but the certified policy risk stays below 1%;
+   drift fired on 88.5% of L2 windows. The byte and risk comparison is in
+   `experiments/e6/summary.json`.
 7. **Zero-bandwidth cells (resolved).** `CostModel.latency_ms` and `evaluate` now return infinity
    for `bandwidth_bps == 0` instead of emitting a divide-by-zero warning; the cell is infeasible.
    `tests/unit/test_analysis.py` covers it.
