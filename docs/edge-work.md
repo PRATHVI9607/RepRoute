@@ -100,9 +100,11 @@ results remain tracked so `make report` does not need the containers.
    `n_sensors` and `load_profiles` selects the largest measured profile at or below it. Verified:
    overheads are 1.0715 / 0.7547 / 0.2918 ms and R6 encode is 0.900 / 0.588 / 0.414 ms at
    1 / 8 / 32 sensors. `tests/unit/test_profile_selection.py` guards the selection rule.
-5. **E4 family boundaries (P1).** H6 now passes on its representative boundaries, but the separate
-   family-boundary check has a 65.6% maximum error. Investigate the boundary procedure before
-   changing the capacity model.
+5. **E4 family boundaries (P1, exploratory).** H6 passes on the representative boundaries. The
+   separate waveform-family check has a 65.6% maximum error, but its 51.7 Mbit/s theoretical
+   boundary lies outside the 31.6 Mbit/s measurement grid, so the measured 30.3 Mbit/s crossing is
+   not resolvable; the other family pair (11.2 vs 32.6 Mbit/s) still differs. Treat the family
+   check as exploratory and do not change the capacity model to chase it.
 6. **L2 drift study (resolved).** The five L2 folds were trained and E6 now reports both levels.
    The L2 static safe-set risk is 12.75% at α=5%, but the certified policy risk stays below 1%;
    drift fired on 88.5% of L2 windows. The byte and risk comparison is in
