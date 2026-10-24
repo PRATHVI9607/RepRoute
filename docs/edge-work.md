@@ -92,8 +92,10 @@ results remain tracked so `make report` does not need the containers.
 2. **Timing stability.** The governor is pinned, the profile is recorded, and `t_io` is still at its
    0.05 ms floor. Repeat E1 several times under `performance` to quantify the remaining variance;
    one profile is not evidence that a small gap is stable.
-3. **Small-frame rate estimation (P1).** The edge never updates its bandwidth estimate for 16 B
-   payloads. Decide whether to keep the prior, use ACK timing, or probe periodically.
+3. **Small-frame rate estimation (resolved).** The 44 B frame cannot produce a reliable goodput
+   sample at these rates, so the edge keeps the configured `initial_bps` prior until a larger
+   frame is sent. No padding/probe frame is added in this pass; ADR 0015 records the decision and
+   the deployment requirement to supply the initial rate.
 4. **Duty cycle (resolved).** E1 has 1-, 8-, and 32-sensor timings; E3 keys each cell by
    `n_sensors` and `load_profiles` selects the largest measured profile at or below it. Verified:
    overheads are 1.0715 / 0.7547 / 0.2918 ms and R6 encode is 0.900 / 0.588 / 0.414 ms at
@@ -113,5 +115,6 @@ results remain tracked so `make report` does not need the containers.
 
 Model changes need an ADR dated before the result is inspected. A failed hypothesis stays failed;
 the 10% threshold is not adjusted to make the result pass. The pacer fix, calibration, and timing
-regime are recorded in [ADR 0013](adr/0013-loopback-pacer-and-io-calibration.md) and
-[ADR 0014](adr/0014-performance-timing-regime.md).
+regime are recorded in [ADR 0013](adr/0013-loopback-pacer-and-io-calibration.md),
+[ADR 0014](adr/0014-performance-timing-regime.md), and
+[ADR 0015](adr/0015-small-frame-rate-estimation.md).

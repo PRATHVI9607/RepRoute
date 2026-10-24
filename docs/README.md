@@ -35,3 +35,4 @@
 | [0012](adr/0012-more-datasets-and-domains.md) | two more datasets: UORED (20 bearings) and PTB-XL (10 266 patients, a per-patient certificate) |
 | [0013](adr/0013-loopback-pacer-and-io-calibration.md) | a precise loopback pacer, and why `t_io` was recalibrated before rerunning the sim-to-real experiments |
 | [0014](adr/0014-performance-timing-regime.md) | pinning the laptop timing regime to `performance`, and why E7 loopback fails H7 while Docker E7d passes |
+| [0015](adr/0015-small-frame-rate-estimation.md) | why sub-1000-byte frames keep the configured rate prior instead of producing ACK-timing samples |
