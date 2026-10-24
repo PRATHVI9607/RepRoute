@@ -121,19 +121,27 @@ class Edge:
         self._free = np.zeros(0, dtype=bool)  # the cascade's free set of the current window
 
     # --- transport --------------------------------------------------------------------------
-    async def _send(self, window_id: int, rep_code: int, chash: bytes, payload: bytes) -> None:
+    async def _send(self, window_id: int, rep_code: int, chash: bytes, payload: bytes) -> float:
+        """Write one frame, returning the time spent waiting for the token bucket.
+
+        The wait is a precise `time.sleep`, not an asyncio timer: the selector tick is ~1 ms on
+        Linux, which is larger than a small frame's serialization time and would add a constant
+        offset that the DES does not model. The edge has no other work to do while this frame
+        waits for the link, and the caller subtracts the wait from its CPU-time accounting.
+        """
         buf = fr.pack(fr.Frame(rep_code, chash, window_id, time.time_ns(), payload))
+        pace_s = 0.0
         if self.cfg.shape_bps:  # token-bucket pacing: emulate a rate-limited uplink in-process
             now = time.perf_counter()
             start = max(now, self._pace_free_at)
             self._pace_free_at = start + len(buf) * 8.0 / self.cfg.shape_bps
-            asyncio.get_running_loop().call_later(
-                max(0.0, self._pace_free_at - now), self.writer.write, buf
-            )
-        else:
-            self.writer.write(buf)
+            pace_s = max(0.0, self._pace_free_at - now)
+            if pace_s:
+                time.sleep(pace_s)
+        self.writer.write(buf)
         self.backlog += len(buf)
         self._in_flight.append((window_id, rep_code, time.perf_counter(), len(buf)))
+        return pace_s
 
     async def measure_rtt(self, samples: int = 5) -> float:
         rtts = []
@@ -213,7 +221,9 @@ class Edge:
             if live:
                 rec["rep_code"] = REP_CODES[reps[k].rep_id]
             rec["bytes"] += len(payload) + fr.OVERHEAD_BYTES
-            await self._send(wid, REP_CODES[reps[k].rep_id], chash[k], payload)
+            rec["pace_ms"] += (
+                await self._send(wid, REP_CODES[reps[k].rep_id], chash[k], payload) * 1e3
+            )
 
         raw_wire = reps[0].size_model().q95_bytes + fr.OVERHEAD_BYTES
         t_start = time.perf_counter()
@@ -237,7 +247,8 @@ class Edge:
             dec, safe = self._decide(x, state)
             rec = {
                 "window_id": wid, "t_arrive": t_arrive, "rep": dec.rep, "flag": dec.flag,
-                "rep_code": -1, "bytes": 0, "audited": False, "bandwidth_bps": state.bandwidth_bps,
+                "rep_code": -1, "bytes": 0, "pace_ms": 0.0, "audited": False,
+                "bandwidth_bps": state.bandwidth_bps,
                 "backlog_bytes": state.backlog_bytes, "safe": safe.tolist(),
                 "probed": safe is not self._free,
             }  # fmt: skip
@@ -255,7 +266,7 @@ class Edge:
                     dropped_wid, _ = self._deferred.popleft()  # buffer full: drop the oldest
                     self.records[dropped_wid]["flag"] = "dropped"
                 self._deferred.append((wid, x))
-            rec["edge_ms"] = (time.perf_counter() - t_arrive) * 1000.0
+            rec["edge_ms"] = (time.perf_counter() - t_arrive) * 1000.0 - rec["pace_ms"]
         await self._drain_and_close(acks)
         return [self.records[w] for w in window_ids.tolist() if w in self.records]
 
