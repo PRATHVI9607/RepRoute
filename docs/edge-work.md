@@ -94,8 +94,10 @@ results remain tracked so `make report` does not need the containers.
    one profile is not evidence that a small gap is stable.
 3. **Small-frame rate estimation (P1).** The edge never updates its bandwidth estimate for 16 B
    payloads. Decide whether to keep the prior, use ACK timing, or probe periodically.
-4. **Duty cycle (P1).** E1 has 1-, 8-, and 32-sensor timings; verify E3 actually selects the
-   matching profile at each node size.
+4. **Duty cycle (resolved).** E1 has 1-, 8-, and 32-sensor timings; E3 keys each cell by
+   `n_sensors` and `load_profiles` selects the largest measured profile at or below it. Verified:
+   overheads are 1.0715 / 0.7547 / 0.2918 ms and R6 encode is 0.900 / 0.588 / 0.414 ms at
+   1 / 8 / 32 sensors. `tests/unit/test_profile_selection.py` guards the selection rule.
 5. **E4 family boundaries (P1).** H6 now passes on its representative boundaries, but the separate
    family-boundary check has a 65.6% maximum error. Investigate the boundary procedure before
    changing the capacity model.
