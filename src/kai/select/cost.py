@@ -132,9 +132,13 @@ class CostModel:
         """L_r = t_edge,r(ρ) + (Q + S_r + 28)/B + RTT/2 + t_dec,r + t_head,r.
 
         `t_edge` includes the runtime's per-frame overhead `t_io(ρ)` when one was calibrated.
+        A zero-bandwidth state is infeasible; return infinity instead of emitting a divide warning.
         """
         p = self.profiles
-        tx_ms = (s.backlog_bytes + p.size_bytes + OVERHEAD_BYTES) * 8000.0 / s.bandwidth_bps
+        if s.bandwidth_bps <= 0.0:
+            tx_ms = np.full_like(p.size_bytes, np.inf)
+        else:
+            tx_ms = (s.backlog_bytes + p.size_bytes + OVERHEAD_BYTES) * 8000.0 / s.bandwidth_bps
         out: F64 = self.edge_time_ms(s.load) + tx_ms + s.rtt_ms / 2.0 + p.t_dec_ms + p.t_head_ms
         return out
 
@@ -162,13 +166,10 @@ class CostModel:
         p, pr = self.profiles, self.prices
         wire = p.size_bytes + OVERHEAD_BYTES
         edge = self.edge_time_ms(s.load)
-        latency = (
-            edge
-            + (s.backlog_bytes + wire) * 8000.0 / s.bandwidth_bps
-            + s.rtt_ms / 2.0
-            + p.t_dec_ms
-            + p.t_head_ms
+        tx = (
+            (s.backlog_bytes + wire) * 8000.0 / s.bandwidth_bps if s.bandwidth_bps > 0.0 else np.inf
         )
+        latency = edge + tx + s.rtt_ms / 2.0 + p.t_dec_ms + p.t_head_ms
         energy = self.energy.p_cpu_w * edge / 1000.0 + self.energy.e_bit_j * wire * 8.0
         cost: F64 = (
             pr.p_byte * wire

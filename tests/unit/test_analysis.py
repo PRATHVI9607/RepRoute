@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -22,6 +24,18 @@ def test_break_even_is_where_the_two_latencies_cross() -> None:
         above = MODEL.latency_ms(State(b * 1.1, 20.0, 0.0, load, 1e9))
         assert below[LATENT] < below[FEATURES]  # compact wins on slow links
         assert above[LATENT] > above[FEATURES]  # cheap-to-encode wins on fast links
+
+
+def test_zero_bandwidth_is_infeasible_without_a_divide_warning() -> None:
+    state = State(bandwidth_bps=0.0, rtt_ms=20.0, backlog_bytes=1000.0, load=0.5, deadline_ms=250.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        latency = MODEL.latency_ms(state)
+        cost, feasible = MODEL.evaluate(state)
+
+    assert np.isinf(latency).all()
+    assert np.isinf(cost).all()
+    assert not feasible.any()
 
 
 def test_break_even_shrinks_as_edge_load_rises() -> None:

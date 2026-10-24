@@ -101,11 +101,11 @@ results remain tracked so `make report` does not need the containers.
    changing the capacity model.
 6. **L2 drift study.** E6 produced only L1 because no L2 folds exist under `artifacts/folds`.
    Build L2 folds if the L2 drift result is in scope.
-7. **Zero-bandwidth warnings.** E3/E5 emit `divide by zero` warnings at grid cells with
-   `bandwidth_bps == 0`. Decide whether those cells are intentional and guard the cost model so
-   the warnings do not hide real failures.
-8. **Bundle provenance.** E7/E7d summaries do not record the profile hash or bundle ID. Add them so
-   the cloud/lab/Pi handoff can identify the exact timing regime and artifact set.
+7. **Zero-bandwidth cells (resolved).** `CostModel.latency_ms` and `evaluate` now return infinity
+   for `bandwidth_bps == 0` instead of emitting a divide-by-zero warning; the cell is infeasible.
+   `tests/unit/test_analysis.py` covers it.
+8. **Bundle provenance (resolved).** E7/E7d summaries now record `bundle_id`, `bundle_git_sha`, and
+   `profiles_sha256`, so the cloud/lab/Pi handoff can identify the exact artifact set.
 
 Model changes need an ADR dated before the result is inspected. A failed hypothesis stays failed;
 the 10% threshold is not adjusted to make the result pass. The pacer fix, calibration, and timing
