@@ -120,8 +120,10 @@ def test_headzoo_decide_timed_and_backwards_compatibility(fold_dir, ws: WindowSe
 
         assert isinstance(t_dec_ms, float)
         assert isinstance(t_head_ms, float)
-        assert math.isfinite(t_dec_ms) and t_dec_ms >= 0.0
-        assert math.isfinite(t_head_ms) and t_head_ms >= 0.0
+        assert math.isfinite(t_dec_ms)
+        assert t_dec_ms >= 0.0
+        assert math.isfinite(t_head_ms)
+        assert t_head_ms >= 0.0
 
     # Verify that decode_for_head and head are each invoked exactly once
     spy_rep = zoo.reps["r4_summary"]
@@ -147,7 +149,8 @@ def test_headzoo_decide_timed_exception_propagation(fold_dir) -> None:
     from kai.cloud.heads import HeadZoo
 
     zoo = HeadZoo(fold_dir)
-    # Undecodable corrupt payload must propagate specific decoding exception (ZstdError on r1_lossless)
+    # Undecodable corrupt payload must propagate specific decoding exception
+    # (ZstdError on r1_lossless)
     with pytest.raises(zstandard.ZstdError):
         zoo.decide_timed("r1_lossless", b"bad_payload_too_short")
     with pytest.raises(zstandard.ZstdError):
@@ -185,14 +188,16 @@ def test_cloud_server_handle_and_telemetry_callback(fold_dir, ws: WindowSet) -> 
     telemetry_events = []
 
     def on_decision(wid, rep_id, decision, t_dec, t_head, cloud_ms):
-        telemetry_events.append({
-            "wid": wid,
-            "rep_id": rep_id,
-            "decision": decision,
-            "t_dec": t_dec,
-            "t_head": t_head,
-            "cloud_ms": cloud_ms,
-        })
+        telemetry_events.append(
+            {
+                "wid": wid,
+                "rep_id": rep_id,
+                "decision": decision,
+                "t_dec": t_dec,
+                "t_head": t_head,
+                "cloud_ms": cloud_ms,
+            }
+        )
 
     zoo = HeadZoo(fold_dir)
     server = CloudServer(zoo, on_decision=on_decision)
@@ -211,16 +216,23 @@ def test_cloud_server_handle_and_telemetry_callback(fold_dir, ws: WindowSet) -> 
     assert reply.rep_code == rep_code
     assert isinstance(reply.decision, int)
     assert isinstance(reply.cloud_ms, float)
-    assert math.isfinite(reply.cloud_ms) and reply.cloud_ms >= 0.0
+    assert math.isfinite(reply.cloud_ms)
+    assert reply.cloud_ms >= 0.0
 
     assert len(telemetry_events) == 1
     ev = telemetry_events[0]
     assert ev["wid"] == 42
     assert ev["rep_id"] == "r4_summary"
     assert ev["decision"] == reply.decision
-    assert isinstance(ev["t_dec"], float) and math.isfinite(ev["t_dec"]) and ev["t_dec"] >= 0.0
-    assert isinstance(ev["t_head"], float) and math.isfinite(ev["t_head"]) and ev["t_head"] >= 0.0
-    assert isinstance(ev["cloud_ms"], float) and math.isfinite(ev["cloud_ms"]) and ev["cloud_ms"] >= 0.0
+    assert isinstance(ev["t_dec"], float)
+    assert math.isfinite(ev["t_dec"])
+    assert ev["t_dec"] >= 0.0
+    assert isinstance(ev["t_head"], float)
+    assert math.isfinite(ev["t_head"])
+    assert ev["t_head"] >= 0.0
+    assert isinstance(ev["cloud_ms"], float)
+    assert math.isfinite(ev["cloud_ms"])
+    assert ev["cloud_ms"] >= 0.0
 
 
 @pytest.mark.xdist_group("fold")

@@ -13,8 +13,22 @@ from kai.bench.realrun import correlate_telemetry, parse_telemetry_jsonl
 def test_parse_telemetry_jsonl_valid(tmp_path: Path) -> None:
     path = tmp_path / "telemetry.jsonl"
     lines = [
-        {"window_id": 1, "rep_id": "r0_raw", "decision": 0, "measured_cloud_dec_ms": 0.5, "measured_cloud_head_ms": 1.2, "cloud_ms": 1.7},
-        {"window_id": 2, "rep_id": "r4_summary", "decision": 1, "measured_cloud_dec_ms": 0.2, "measured_cloud_head_ms": 0.8, "cloud_ms": 1.0},
+        {
+            "window_id": 1,
+            "rep_id": "r0_raw",
+            "decision": 0,
+            "measured_cloud_dec_ms": 0.5,
+            "measured_cloud_head_ms": 1.2,
+            "cloud_ms": 1.7,
+        },
+        {
+            "window_id": 2,
+            "rep_id": "r4_summary",
+            "decision": 1,
+            "measured_cloud_dec_ms": 0.2,
+            "measured_cloud_head_ms": 0.8,
+            "cloud_ms": 1.0,
+        },
     ]
     path.write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
 
@@ -42,7 +56,10 @@ def test_parse_telemetry_jsonl_empty_and_blank_lines(tmp_path: Path) -> None:
 
 def test_parse_telemetry_jsonl_malformed_syntax_raises(tmp_path: Path) -> None:
     path = tmp_path / "malformed.jsonl"
-    path.write_text('{"window_id": 1, "rep_id": "r0_raw", "decision": 0}\n{bad json}\n', encoding="utf-8")
+    path.write_text(
+        '{"window_id": 1, "rep_id": "r0_raw", "decision": 0}\n{bad json}\n',
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="Malformed JSONL line 2"):
         parse_telemetry_jsonl(path)
 
@@ -71,7 +88,8 @@ def test_correlate_telemetry_success() -> None:
     records = [
         {"window_id": 1, "rep_code": 0, "decision": 0, "cloud_ms": 1.5},
         {"window_id": 2, "rep_code": 5, "decision": 1, "cloud_ms": 0.8},
-        {"window_id": 3, "rep_code": 0, "decision": 0, "cloud_ms": 1.2},  # telemetry missing for this one
+        # telemetry missing for window 3:
+        {"window_id": 3, "rep_code": 0, "decision": 0, "cloud_ms": 1.2},
     ]
     events = {
         (1, "r0_raw"): {"measured_cloud_dec_ms": 0.4, "measured_cloud_head_ms": 1.1},
@@ -118,9 +136,7 @@ def test_cloud_process_and_real_run_telemetry(bundle_dir, fold_dir, ws, tmp_path
     from kai.edge.bundle import load_bundle
     from kai.edge.runtime import EdgeConfig
     from kai.select.policies import Static
-    from kai.tasks.pipeline import Table
 
-    table = Table.load(fold_dir / "table.npz")
     bundle = load_bundle(bundle_dir)
     prices = Prices(name="t", story="t", p_byte=1.0, p_j=0.0, p_cpu_ms=0.0, p_late_ms=100.0)
     energy = EnergyModel(p_cpu_w=1.0, e_bit_j=1e-7)

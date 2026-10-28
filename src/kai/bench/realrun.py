@@ -13,7 +13,6 @@ import logging
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -26,7 +25,6 @@ from kai.edge.bundle import Bundle
 from kai.edge.runtime import EdgeConfig, run_edge
 from kai.profile.profiler import co_tenants
 from kai.select.base import Selector
-
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +39,12 @@ def parse_telemetry_jsonl(path: Path) -> dict[tuple[int, str], dict]:
     if not path.exists():
         return events
     with path.open("r", encoding="utf-8") as f:
-        for line_num, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
+        for line_num, raw_line in enumerate(f, start=1):
+            line_str = raw_line.strip()
+            if not line_str:
                 continue
             try:
-                rec = json.loads(line)
+                rec = json.loads(line_str)
             except Exception as e:
                 raise ValueError(f"Malformed JSONL line {line_num} in {path}: {e}") from e
             if not isinstance(rec, dict):
@@ -58,9 +56,11 @@ def parse_telemetry_jsonl(path: Path) -> dict[tuple[int, str], dict]:
                     )
             key = (int(rec["window_id"]), str(rec["rep_id"]))
             if key in events:
-                raise ValueError(
-                    f"Duplicate telemetry event for (window_id={key[0]}, rep_id='{key[1]}') at line {line_num}"
+                msg = (
+                    f"Duplicate telemetry event for (window_id={key[0]}, rep_id='{key[1]}') "
+                    f"at line {line_num}"
                 )
+                raise ValueError(msg)
             events[key] = rec
     return events
 

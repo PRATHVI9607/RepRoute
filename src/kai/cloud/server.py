@@ -95,7 +95,7 @@ async def serve(
     on_decision = None
     if telemetry_out is not None:
         telemetry_out.parent.mkdir(parents=True, exist_ok=True)
-        sink = open(telemetry_out, "a", encoding="utf-8")
+        sink = telemetry_out.open("a", encoding="utf-8")
 
         def _on_decision(
             window_id: int,

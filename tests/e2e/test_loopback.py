@@ -174,14 +174,16 @@ def test_loopback_with_telemetry_callback(bundle_dir, fold_dir, ws: WindowSet) -
     events: list[dict] = []
 
     def on_decision(wid, rep_id, dec, dec_ms, head_ms, cloud_ms):
-        events.append({
-            "window_id": wid,
-            "rep_id": rep_id,
-            "decision": dec,
-            "measured_cloud_dec_ms": dec_ms,
-            "measured_cloud_head_ms": head_ms,
-            "cloud_ms": cloud_ms,
-        })
+        events.append(
+            {
+                "window_id": wid,
+                "rep_id": rep_id,
+                "decision": dec,
+                "measured_cloud_dec_ms": dec_ms,
+                "measured_cloud_head_ms": head_ms,
+                "cloud_ms": cloud_ms,
+            }
+        )
 
     records = loop(bundle_dir, ws, table, cfg, n=15, on_decision=on_decision)
     assert len(records) == 15
@@ -190,9 +192,11 @@ def test_loopback_with_telemetry_callback(bundle_dir, fold_dir, ws: WindowSet) -
     # Check each event's fields and match against returned edge records
     events_by_key = {(e["window_id"], e["rep_id"]): e for e in events}
     zoo = HeadZoo(bundle_dir)
-    code_to_rep_id = {zoo.reps[r].rep_code: r for r in zoo.reps} if hasattr(zoo, "rep_codes") else {
-        REP_CODES[r]: r for r in zoo.reps
-    }
+    code_to_rep_id = (
+        {zoo.reps[r].rep_code: r for r in zoo.reps}
+        if hasattr(zoo, "rep_codes")
+        else {REP_CODES[r]: r for r in zoo.reps}
+    )
     for rec in records:
         expected_rep_id = code_to_rep_id[rec["rep_code"]]
         key = (rec["window_id"], expected_rep_id)
