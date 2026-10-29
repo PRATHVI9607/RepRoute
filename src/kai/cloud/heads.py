@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -92,5 +93,15 @@ class HeadZoo:
             return int(logits[0].argmax())
         return int(self._heads[rep_id].predict(decoded)[0])
 
+    def decide_timed(self, rep_id: str, payload: bytes) -> tuple[int, float, float]:
+        """Decode and decide for one payload, returning (decision, t_dec_ms, t_head_ms)."""
+        t0 = time.perf_counter_ns()
+        decoded = self.reps[rep_id].decode_for_head(payload)
+        t1 = time.perf_counter_ns()
+        decision = self.head(rep_id, decoded)
+        t2 = time.perf_counter_ns()
+        return decision, (t1 - t0) / 1e6, (t2 - t1) / 1e6
+
     def decide(self, rep_id: str, payload: bytes) -> int:
-        return self.head(rep_id, self.reps[rep_id].decode_for_head(payload))
+        decision, _, _ = self.decide_timed(rep_id, payload)
+        return decision
