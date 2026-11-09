@@ -67,3 +67,19 @@ in ADR 0014 and `docs/research/results.md`.
   failure.
 - `time.sleep` blocks the edge event loop for the frame's serialization time. A future multi-frame
   pacer should use a dedicated thread or timerfd; E7 has one frame per 64 ms window.
+
+## Addendum (2026-10-30): stamp a paced frame when its serialization starts
+
+The precise-sleep pacer recorded each frame's send time **after** the token-bucket wait, i.e.
+after the emulated link had already carried it. On loopback the ACK then arrives almost at once,
+so every goodput sample from a frame of `MIN_SAMPLE_BYTES` or more read about 10 Mbit/s whatever
+the shaped rate. Paderborn never showed it: its 44-byte frames produce no samples, and the
+estimator stays at `initial_bps`. Speech Commands sends KB-sized frames: the estimate sat at
+~10 Mbit/s at 256 kbit/s, 1 and 5 Mbit/s, and choice agreement with the DES fell to 70.7 % at
+256 kbit/s (E7, `results-speechcmd.md`).
+
+`Edge._send` now stamps the frame with the moment its serialization starts (`t_start`), which is
+what the goodput formula in `_acks` and `_backlog_seen` assume. Test:
+`tests/unit/test_edge_pacing.py::test_a_paced_frame_is_stamped_when_its_serialization_starts`.
+E7 is rerun on Paderborn and Speech Commands with the fix; the earlier E7 rows stay in the
+registry.

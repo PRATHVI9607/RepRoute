@@ -37,3 +37,10 @@
 | [0013](adr/0013-loopback-pacer-and-io-calibration.md) | a precise loopback pacer, and why `t_io` was recalibrated before rerunning the sim-to-real experiments |
 | [0014](adr/0014-performance-timing-regime.md) | pinning the laptop timing regime to `performance`, and why E7 loopback fails H7 while Docker E7d passes |
 | [0015](adr/0015-small-frame-rate-estimation.md) | why sub-1000-byte frames keep the configured rate prior instead of producing ACK-timing samples |
+| [0016](adr/0016-mid-size-wavelets.md) | opt-in r2c/r2d wavelets (ε 0.15 / 0.30) between near-lossless and the learned codes; exploratory |
+| [0017](adr/0017-blas-free-edge-math.md) | edge-side codecs and features avoid multi-threaded BLAS: a threading artifact inflated 16 384-sample wavelet timings 15-70x |
+| [0018](adr/0018-logmel-representation.md) | opt-in coarse log-mel grids (258 B, 146 B) with a CNN head distilled from f_raw; exploratory |
+| [0019](adr/0019-cloud-timing-and-ack-estimate.md) | time cloud decode + head back to back as the server does; remove cloud time from the edge goodput sample |
+| [0020](adr/0020-group-crc.md) | V0 calibrated with one sample per unit (group CRC), exploratory |
+| [0021](adr/0021-review-fixes.md) | fixes from the 2026-11-01 code review: edge timing, NaN guards, ACI feedback, statistics units, caches |
+| [0022](adr/0022-exploratory-fixes-after-rerun.md) | exploratory fixes after the rerun: gated static fallback, noise-aware H6, H2a non-inferiority; B4 is uncertified |

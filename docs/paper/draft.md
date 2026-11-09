@@ -1,8 +1,12 @@
 # Paper draft — certify-then-optimize for edge sensor offloading
 
-Status: working draft, 2026-10-14. **No number is typed here.** Every quantitative statement points
-to a section of [results.md](../research/results.md) (Paderborn) or
-[results-hust.md](../research/results-hust.md) (transfer), which `make report` regenerates. When a
+Status: working draft, 2026-11-01 (after the ADR 0020 / 0021 rerun). **No number is typed here.**
+Every quantitative statement points to a section of [results.md](../research/results.md)
+(Paderborn) or a transfer report — [results-har.md](../research/results-har.md),
+[results-speechcmd.md](../research/results-speechcmd.md),
+[results-speechcmd-logmel.md](../research/results-speechcmd-logmel.md) (exploratory),
+[results-sleepedf.md](../research/results-sleepedf.md); HUST, UORED and PTB-XL are from earlier
+code — which `make report` regenerates. When a
 figure or table goes into the manuscript, it is copied from there at submission time. Claims are
 worded to match [novelty-log.md](../research/novelty-log.md) and PRD §3.3 as revised on 2026-10-14.
 
@@ -16,32 +20,41 @@ per window is worth it*
 An edge node that offloads vibration windows must decide what to send: raw samples, a compressed
 waveform, engineered features or a learned latent. We certify that choice. Conformal risk control
 on the event that the cloud's decision would change yields a *safe set* of representations whose
-expected disagreement with the raw-data decision is at most α for **any** selector inside it, and
+expected rate of certified decisions that disagree with the raw-data decision, per offered window,
+is at most α for **any** selector inside it when calibration and test units are exchangeable, and
 two such sets — one fixed, one per window, each at α/2 — combine by a union bound into a *cascade*
-that pays for per-window scoring only when it can pay for itself. Evaluated strictly on bearings
-never seen in training, across two datasets, the fixed certified set holds its bound in every fold
-at a small fraction of the raw payload (results §E2). Whether per-window choice pays depends on
-what is priced: under byte or energy pricing one compact representation suffices and the fixed set
-wins; when edge CPU time is priced, per-window choice is markedly cheaper than any single
-representation (results §E3, price presets). We report the negative findings as such and release
-the pipeline.
+that pays for per-window scoring only when it can pay for itself (both added after the first
+results, so exploratory). Evaluated strictly on units never seen in training — bearings, people,
+speakers and sleepers — the cascade's and the fixed set's mean disagreement stays below α on every
+dataset rerun with the final code, at a small fraction of the raw payload (results §E2 of each
+report). The simulator used for the cost study meets its pre-set latency threshold against a real
+socket runtime on three of four datasets and in a Docker testbed (§E7, §E7d). Adaptive choice
+fails its pre-registered value test on every dataset (H3); on three of four it costs more than the
+best single representation, which carries no guarantee, because when the certificate refuses the cheap latent the
+next certified payload is too large for a slow link. A mixed menu beats every single family on
+Sleep-EDF, on PTB-XL and, exploratory, with log-mel on speech; on these datasets the menu holds a
+small representation close to the raw decision. We report the negative findings as such and
+release the pipeline.
 
 ## 1 Introduction — the argument in five steps
 
 1. Representation choice for offloading is made by heuristics or learned policies with no
    statement about what it does to the downstream decision; AdaEdge (ICDE 2024) already selects
    among codecs by agreement with the raw-data model, best effort.
-2. Contribution: the *certificate* — a safe set with a finite-sample bound on agreement with the
+2. Contribution: the *certificate* — a safe set with a finite-sample bound, in expectation, on agreement with the
    raw decision that holds for every selector inside it (Proposition 1), so the optimizer can be
    swapped without re-proving anything; and the *cascade*, which spends edge compute on
    per-window scoring only when the cost model says it could pay.
 3. An honest evaluation needs a reference model that generalises to unseen machines. We searched
    for one under a strict leave-bearings-out protocol and record every candidate; scores near 0.95
    reported on this dataset come from leaky splits.
-4. Findings: the fixed certified set holds on unseen bearings on both datasets; the per-window
-   certificate holds on average on one and fails under the second dataset's bearing shift; per-window
-   choice pays only when edge CPU is the scarce resource. These are the regimes a practitioner
-   needs to know.
+4. Findings: on the four datasets rerun with the final code the cascade's and the fixed set's
+   mean risk is below α at every α (on UORED, earlier code, the cascade's mean was above α); the
+   per-window certificate lands on α on Speech Commands, stays below it on Paderborn, and is pushed
+   over α by unit shift on HUST, UORED and HAR at α = 0.1; the simulator meets its latency threshold
+   on three of four datasets; adaptive choice fails H3 everywhere, is cheaper than best-single only
+   on HAR, and paid under CPU pricing only while the edge was slow.
+   These are the regimes a practitioner needs to know.
 5. Contributions: (C1, narrowed) the certificate, the any-selector statement and the cascade;
    (C4) a leakage-safe benchmark with a recorded model search; (C5) an empirical map of when
    adaptivity pays, with negative results reported as such.
@@ -65,7 +78,10 @@ State plainly that the bound is on `E[d_π · 1{certified}]` per offered window.
 - 4.1 Safe sets and Proposition 1 (corrected statement and proof, `docs/theory/proposition1.md`).
 - 4.2 Variants: V0, V1 (LTT), V2 (policy-specific; nominal cost vector only), **V0 with constant
   scores** (one safe set for every window; ADR 0008), and the **cascade** (union of the two at α/2
-  with a value-of-information gate on the probe; ADR 0011).
+  with a value-of-information gate on the probe; ADR 0011) — the deployment we recommend.
+- 4.2b Group CRC (exploratory, ADR 0020): one exchangeable sample per unit; needs at least
+  ⌈1/α⌉ − 1 calibration units, which at α = 0.05 only Speech Commands has (Sleep-EDF has enough
+  at α = 0.1); it bounds the expected mean loss of a new exchangeable unit.
 - 4.3 Selection inside the set: greedy, MPC; the degradation ladder.
 - 4.4 Drift: audit-in-the-loop ACI (no finite-sample guarantee); the probe-feature monitor and why
   it fails here (ADR 0008 §5).
@@ -95,19 +111,28 @@ overhead (ADR 0008); real-socket and Docker backends.
 - 7.3 The system (results §E3, price presets, §E5): Kai versus baselines B1–B13 and the oracle;
   breakdown by sensors per node and by bandwidth; what the ablations say about the predictor.
 - 7.4 Shift (results §E6): leave-condition-out; the audit loop; the drift monitor.
-- 7.5 Theory and reality (results §E4, §E7, §E7d): break-evens and sim-to-real.
-- 7.6 Transfer (results-hust.md): the same pipeline on a second dataset.
+- 7.5 Theory and reality (results §E4, §E7, §E7d): sim-to-real meets its threshold (H7); the
+  closed-form break-evens fail (H6), and under a strict noise rule no measured crossing is resolved
+  at all (ADR 0022, exploratory); a median-SE rule or a finer grid was not tried.
+- 7.6 Transfer (results-har.md, results-speechcmd.md, results-sleepedf.md; HUST, UORED and PTB-XL
+  from earlier code): the same pipeline and hypotheses on four more datasets; log-mel on Speech
+  Commands as an exploratory menu (ADR 0018).
 - 7.7 Privacy (results §E10): compact payloads re-identify machines.
 
 ## 8 Limitations
 
 Copy from `docs/theory/limitations.md`; add: laptop timings and the 32-sensor sensitivity; the
-measured traces are downlink shape; the reference model's absolute quality.
+measured traces are downlink shape; the reference model's absolute quality; fold-level p-values
+are optimistic because folds of different repeats share test units, and Holm is applied within a
+dataset, not across datasets; group CRC needs more units than Paderborn and HAR have at any α, and Sleep-EDF at α = 0.05; the
+Sleep-EDF real-socket test replays 60 windows per link rate (ADR 0021); the edge is a laptop, not a
+Raspberry Pi, so H4 is untested where it matters.
 
 ## 9 Conclusion (shape)
 
-A certificate is cheap to add, valid in the sense it promises, and decouples guarantees from
-optimisation. Whether *per-window* certification pays depends on the menu: with one compact
+A certificate is cheap to add and decouples guarantees from optimisation. The union-bound cascade
+and the static set stay below α on average on every rerun dataset; window-level V0 lands near α and
+misses H2a where the units are not exchangeable. Whether *per-window* certification pays depends on the menu: with one compact
 representation that follows the reference model, a certified static set is the right deployment;
 with a menu of genuinely competing representations the per-window predictor has something to do.
 Building such a menu for machines the model has not seen is the open problem.
@@ -119,3 +144,6 @@ Building such a menu for machines the model has not seen is the open problem.
   changes the framing of 7.1–7.3.
 - A human check of Proposition 1.
 - The novelty sweep repeated at T−14 and T−2 days.
+- SHHS (access to be requested on 2026-11-02): enough units for group CRC, and the first unseen test of the
+  exploratory fixes agreed on 2026-11-01 (lossless fallback, static fallback, noise-aware H6
+  crossings, H2a non-inferiority; results in `updates.md` §7).

@@ -60,34 +60,58 @@ Three passes done (implementation; reference model and certificate review; simul
 
 | | |
 |---|---|
-| **Built and tested** | Representations R0–R7 · certificate variants V0 / V1 / V2 · ACI and drift monitor · selectors S0 / S1 / S2 and the oracle · baselines B1–B5 and B8–B11 · discrete-event simulator · edge and cloud runtime over real sockets · Docker closed loop with `tc netem` · experiments E1–E8 and the privacy probe E10 · a recorded reference-model search |
+| **Built and tested** | Representations R0–R7, opt-in mid-size wavelets and R10 log-mel · certificate variants V0 / V1 / V2, the static set, the cascade and group CRC · ACI and drift monitor · selectors S0 / S1 / S2 and the oracle · baselines B1–B5, B8–B11 and B13 · discrete-event simulator · edge and cloud runtime over real sockets · Docker closed loop with `tc netem` · experiments E1–E8 and the privacy probe E10 · a recorded reference-model search |
 | **Ready, not yet run** | Raspberry Pi edge (`scripts/pi_setup.sh`) |
-| **Not built** | R8 (JEPA), R9 (MiniRocket), bandit and RL selectors, escalation, transfer dataset, the paper |
+| **Not built** | R8 (JEPA), R9 (MiniRocket), bandit and RL selectors, escalation, the paper (draft only), SHHS (access pending) |
 | **Modelled, not measured** | All energy numbers · the "slow edge" sensitivity run · the 3G / 4G / 5G traces (synthetic) |
 
 ## What the results say
 
-Four datasets, all evaluated leave-units-out: **Paderborn** bearings (15 folds, the main study),
-**HUST** and **UORED** bearings (5 folds each), and **PTB-XL** ECG, where the unit is the patient
-(10 266 patients, 5 folds). The hypotheses were fixed before the experiments
-([docs/research/hypotheses.md](docs/research/hypotheses.md)); a tested hypothesis counts as
-*supported* only if its threshold is met **and** a Holm test over all eight rejects. Full numbers:
-[results.md](docs/research/results.md) (Paderborn), [results-hust.md](docs/research/results-hust.md),
+Eight datasets, all evaluated leave-units-out. Four were rerun on 2026-11-01 after a full code
+review (ADR 0020, ADR 0021): **Paderborn** bearings (15 folds, the main study), **UCI HAR**,
+**Speech Commands** (also with an exploratory log-mel menu, ADR 0018) and **Sleep-EDF** (5 folds
+each). HUST, UORED and PTB-XL are from earlier code and were not rerun. The hypotheses were fixed
+before the experiments ([docs/research/hypotheses.md](docs/research/hypotheses.md)); a tested
+hypothesis counts as *supported* only if its threshold is met **and** a Holm test over all eight
+rejects (within each dataset, not across datasets). Full numbers: [results.md](docs/research/results.md)
+(Paderborn), [results-har.md](docs/research/results-har.md),
+[results-speechcmd.md](docs/research/results-speechcmd.md),
+[results-speechcmd-logmel.md](docs/research/results-speechcmd-logmel.md),
+[results-sleepedf.md](docs/research/results-sleepedf.md), [results-hust.md](docs/research/results-hust.md),
 [results-uored.md](docs/research/results-uored.md), [results-ptbxl.md](docs/research/results-ptbxl.md).
+What changed and why: [updates.md](updates.md) §6.
 
-| | Paderborn | HUST | UORED | **PTB-XL** |
-|---|---|---|---|---|
-| Units | 29 bearings | 15 bearings | 20 bearings | **10 266 patients** |
-| Cloud model, macro-F1 on unseen units | 0.60 | 0.64 | 0.75 | 0.67 |
-| Per-window certificate (V0), risk at α = 0.05; folds within α | 0.039; 12/15 | 0.078; 2/5 | 0.079; 2/5 | **0.049; 4/5** |
-| Certified static set, risk at α = 0.05; folds within α | 0.030; 15/15 | 0.027; 4/5 | 0.017; 5/5 | 0.032; 5/5 |
-| Cascade, risk at α = 0.05; folds within α | 0.019; 15/15 | not run | 0.059; 2/5 | 0.024; 5/5 |
-| **H5** mixed menu beats the best single family | 5.6 % | 15.1 %, n.s. | 15.2 %, n.s. | **15.9 %, supported** |
+Risk is disagreement with the cloud model's raw-data decision at α = 0.05: mean over folds; folds within α.
 
-Two patterns hold across all four. The **certified static set keeps its bound everywhere**. The
-**per-window certificate is exactly as good as its calibration units are exchangeable**: on
-PTB-XL, with thousands of patients, it lands on α as the theory predicts; with a handful of
-bearings it is pushed over α by bearing-to-bearing shift.
+| Dataset | Units | Cloud model, macro-F1 on unseen units | Per-window certificate (V0) | Certified static set (exploratory) | **Cascade** (exploratory) | **H5** mixed menu beats the best single family |
+|---|---|---|---|---|---|---|
+| Paderborn | 29 bearings | 0.60 | 0.039; 12/15 | 0.030; 15/15 | **0.019; 15/15** | +5.8 % |
+| UCI HAR | 30 users | 0.78 | 0.049; 3/5 | 0.000; 5/5 | **0.025; 5/5** | +10.9 %, n.s. |
+| Speech Commands | 2 492 speakers | 0.92 | 0.052; 2/5 | 0.029; 5/5 | **0.027; 5/5** | +5.0 % |
+| Speech Commands + log-mel (exploratory) | 2 492 speakers | 0.92 | 0.052; 2/5 | 0.029; 5/5 | **0.027; 5/5** | +15.9 %, supported (not confirmatory) |
+| Sleep-EDF | 78 subjects | 0.67 | 0.041; 4/5 | 0.041; 5/5 | **0.023; 4/5** | **+21.0 %, supported** |
+| HUST (earlier code) | 15 bearings | 0.64 | 0.078; 2/5 | 0.027; 4/5 | not run | +15.1 %, n.s. |
+| UORED (earlier code) | 20 bearings | 0.75 | 0.079; 2/5 | 0.017; 5/5 | 0.059; 2/5 | +15.2 %, n.s. |
+| PTB-XL (earlier code) | 10 266 patients | 0.67 | 0.049; 4/5 | 0.032; 5/5 | 0.024; 5/5 | +15.9 %, supported |
+
+Three patterns. The **cascade's and the static set's mean risk is below α** on every rerun dataset
+(cascade 0.019–0.027 at α = 0.05; descriptively 29 of 30 folds within α). The bound is on the
+expected risk only, and the margin is the slack of the cascade's α/2 + α/2 split. The
+**per-window certificate depends on exchangeable calibration units**: on Speech Commands it lands
+at 0.052 (CI [0.048, 0.055]), on α; on Paderborn it stays below α on average at every α; on HUST and
+UORED (earlier code) and on HAR at α = 0.1 (0.104) bearing or user shift pushes it over. **H7's
+descriptive threshold** (simulator vs real runtime) is met on three of four rerun datasets
+(Paderborn 4.2 %, HAR 5.6 %, Sleep-EDF 6.1 %; Speech Commands fails at 12.5 %), with the log-mel
+menu (8.8 %) and in Docker on Paderborn (1.0 %).
+
+**H3 (adaptation pays) fails on every dataset.** On HAR Kai is 26 % cheaper than best-single but
+misses the deadline-miss target. On Paderborn, Speech Commands and Sleep-EDF it costs more: when a
+window's safe set excludes the cheap latent, the next certified options are KB-sized, they miss the
+deadline on slow links, and Kai holds the window back, while best-single keeps sending the latent without a
+certificate. (Best-single screens every representation with a marginal check on calibration data
+and keeps the cheapest that passes; that bounds nothing once several are tried, ADR 0022.) Log-mel on Speech Commands (146 bytes, 11 % disagreement) meets H5 but not H3. A
+group-level certificate (one sample per unit, ADR 0020, exploratory) needs at least 19 calibration
+units at α = 0.05 and 9 at α = 0.1: Speech Commands has them at every α, Sleep-EDF only at α = 0.1.
 
 **The cloud model.** Chosen from about 150 recorded candidates by cross-validation on training
 bearings only ([ADR 0006](docs/adr/0006-envelope-reference-model.md),
@@ -108,7 +132,7 @@ here. Published results on unseen bearings lie between 0.33 and 0.75.
 
 | | Paderborn, 15 folds | HUST, 5 folds |
 |---|---|---|
-| Per-window certificate (V0): risk at α = 0.02 / 0.05 / 0.10 | 0.012 / 0.039 / 0.079 — below α on average, within α in 13, 12, 12 of 15 folds; not significantly below α (H2a: threshold met, not significant) | 0.043 / 0.078 / 0.127 — above α |
+| Per-window certificate (V0): risk at α = 0.02 / 0.05 / 0.10 | 0.012 / 0.039 / 0.079 — below α on average, within α in 13, 12, 12 of 15 folds; H2a not supported; non-inferiority at α + 0.01 rejects, p = 0.032 (ADR 0022, exploratory) | 0.043 / 0.078 / 0.127 — above α |
 | **Certified static safe set** (same guarantee, no probe or predictor on the edge; exploratory) | 0.010 / 0.030 / 0.030 — within α in **every** fold, cheapest certified payload 0.2 % of raw | 0.008 / 0.027 / 0.060 — within α in 5, 4, 5 of 5 folds |
 
 **The system** (Paderborn, scenario grid of 1 296 cells, bytes priced).
@@ -116,14 +140,14 @@ here. Published results on unseen bearings lie between 0.33 and 0.75.
 | | Result | Verdict |
 |---|---|---|
 | **H1** several representations matter | the oracle's main choice is one 16-byte latent in 99.5 % of cells | not supported |
-| **H3** Kai beats the best single representation | cost **3.4 × higher** with the per-window certificate: it holds back about 30 % of windows whose safe set excludes the latent. Deadline misses on bursty links **30 % lower** than the context-blind baseline (target 30 %) | not supported |
-| Certified static safe set (exploratory) | 1.4 × the cost of best-single, with fewer deadline misses (11.7 % against 13.5 %) | — |
-| When edge CPU time is priced (`wired_gateway`, exploratory, 15 folds) | the oracle needs two representations; per-window Kai is **61 % cheaper** than best-single, the cascade **72 %** (probe on 7.5 % of windows), the static set **78 %** | the regime where state-aware choice pays |
+| **H3** Kai beats the best single representation | cost **3.1 × higher** with the per-window certificate, 2.0 × with the cascade: it holds back 29 % of windows whose safe set excludes the latent, because nothing certified reaches the cloud in time. Deadline misses on bursty links **26 % lower** than the context-blind baseline (target 30 %) | not supported |
+| Certified static safe set (exploratory) | 1.4 × the cost of best-single, with fewer deadline misses (13.9 % against 19.1 %) | — |
+| When edge CPU time is priced (`wired_gateway`, exploratory, 15 folds) | with the CPU pinned to the `performance` profile (ADR 0014) the oracle uses R4 in 98 % of cells; per-window Kai costs **3.4× more** than best-single, the cascade 2.2× more. The earlier saving came from the slower `powersave` timings | adaptivity pays only when the edge is slow; on this laptop it is not |
 | **H4** encode cost changes the choice | 0.2 % of loaded cells | not supported |
-| **H5** a mixed menu beats one family | 5.6 % cheaper (target 10 %); on HUST 15.1 %, not significant | not supported |
-| Queue awareness (ablation) | ignoring the uplink queue costs 29 % more | — |
-| **H6** closed-form break-evens | 4 of 12 measured boundaries match, worst error far above 20 % | not supported |
-| **H7** simulator matches the real runtime | same choice for 100 % of windows; p50 latency off by 10.1 % (loopback) and 17.1 % (Docker), target 10 % | not supported |
+| **H5** a mixed menu beats one family | 5.8 % cheaper (target 10 %); supported on Sleep-EDF, PTB-XL and (exploratory) Speech Commands with log-mel | not supported |
+| Queue awareness (ablation) | ignoring the uplink queue costs 30 % more | — |
+| **H6** closed-form break-evens | re-measured: 1 of 10 measured boundaries matches, error 128 %; with crossings inside the measurement noise dropped (ADR 0022, exploratory) none is left on any of the four re-measured datasets | not supported |
+| **H7** simulator matches the real runtime | same choice for 100 % of windows; p50 latency off by 4.2 % (loopback) and 1.0 % (Docker), target 10 % | threshold met (descriptive) |
 | New operating condition (held out) | the any-policy risk rises to 0.13 at α = 0.05: the certificate does not survive a condition shift | — |
 | Privacy probe (exploratory) | a 16-byte latent still re-identifies a known machine in 59 % of windows (chance 18 %) | compact is not private |
 

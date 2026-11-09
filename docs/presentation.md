@@ -317,45 +317,58 @@ Baselines: always raw (B1), fixed compression (B2), fixed features (B3), best si
 
 Published bearing-wise results on this dataset lie between 0.33 and 0.75.
 
-### 10.2 The certificate (α = 0.05, 15 folds)
+### 10.2 The certificate (α = 0.05, 15 folds; static set and cascade exploratory, ADR 0008 / 0011)
 
 | Certificate | Changed decisions | Folds within α | Smallest certified payload |
 |---|---|---|---|
-| Per-window (V0) | 3.9 % | 12 / 15 | 13.6 % of raw |
-| Static safe set | 3.0 % | 15 / 15 | 0.2 % of raw |
-| **Cascade** | **1.9 %** | **15 / 15** | **0.2 % of raw** |
+| Per-window (V0) | 3.9 % | 12 / 15 | 13.5 % of raw |
+| Static safe set (exploratory) | 3.0 % | 15 / 15 | 0.2 % of raw |
+| **Cascade** (exploratory) | **1.9 %** | **15 / 15** | **0.2 % of raw** |
 
 ### 10.3 The system
 
 | Finding | Number |
 |---|---|
 | Static safe set vs best single representation, bytes priced | 1.4 × the cost, fewer missed deadlines |
-| Cascade vs per-window selector, bytes priced | about 40 % cheaper; the probe runs on 12 % of windows |
-| Choosing by system state when **edge CPU time** is priced (15 folds, exploratory) | per-window **61 %**, cascade **72 %**, static set **78 %** cheaper than any single representation |
-| Missed deadlines vs a context-blind selector, bursty links | 30 % fewer |
-| Queue awareness | ignoring the uplink queue costs 29 % more |
-| Simulator vs real runtime | same choice for 100 % of windows; median latency within 10–17 % |
+| Cascade vs per-window selector, bytes priced | about 35 % cheaper; the probe runs on 12 % of windows |
+| **Kai vs the best single representation (H3)** | 3.1 × the cost (cascade 2.0 ×): when the certificate refuses the latent, the next certified payload is too large for a slow link, and the window is held back. Best-single keeps sending the latent, uncertified |
+| Choosing by system state when **edge CPU time** is priced (15 folds, exploratory) | no saving once timings are pinned to the `performance` CPU profile: the edge is ~4× faster and one representation (R4) wins 98 % of cells. The earlier 61–78 % saving was a `powersave` timing artifact |
+| Missed deadlines vs a context-blind selector, bursty links | 26 % fewer (target 30 %) |
+| Queue awareness | ignoring the uplink queue costs 30 % more |
+| Simulator vs real runtime | same choice for 100 % of windows; median latency within 4.2 % (loopback) and 1.0 % (Docker) |
 | Privacy | a 16-byte latent still identifies a known machine in 59 % of windows |
 
-### 10.4 Four datasets
+### 10.4 Eight datasets
 
-| | Paderborn | HUST | UORED | PTB-XL (ECG) |
-|---|---|---|---|---|
-| Units | 29 bearings | 15 bearings | 20 bearings | 10 266 patients |
-| Cloud model macro-F1, unseen units | 0.60 | 0.64 | 0.75 | 0.67 |
-| Static set within α = 0.05 | 15/15 folds | 4/5 | 5/5 | 5/5 |
-| Per-window certificate within α = 0.05 | 12/15 | 2/5 | 2/5 | 4/5, risk 0.049 ≈ α |
-| Mixed menu vs best single family (H5) | +5.6 % | +15.1 % | +15.2 % | **+15.9 %, supported** |
+Rerun on 2026-11-01: Paderborn, UCI HAR, Speech Commands, Sleep-EDF. HUST, UORED and PTB-XL are from earlier code.
+Risk = changed decisions at α = 0.05.
 
-With thousands of patients the per-window certificate lands on α exactly as the theory predicts;
-with a handful of bearings, machine-to-machine shift pushes it over.
+| Dataset | Units | Cloud model macro-F1, unseen units | Cascade risk (exploratory); folds within α | Mixed menu vs best family (H5) | Simulator vs real (H7) |
+|---|---|---|---|---|---|
+| Paderborn (bearings) | 29 bearings | 0.60 | 1.9 %; 15/15 | +5.8 % | 4.2 %, met |
+| UCI HAR (activity) | 30 users | 0.78 | 2.5 %; 5/5 | +10.9 %, n.s. | 5.6 %, met |
+| Speech Commands (audio) | 2 492 speakers | 0.92 | 2.7 %; 5/5 | +5.0 % | 12.5 %, fails |
+| … with log-mel (exploratory) | 2 492 speakers | 0.92 | 2.7 %; 5/5 | +15.9 %, supported (not confirmatory) | 8.8 %, met |
+| Sleep-EDF (EEG) | 78 subjects | 0.67 | 2.3 %; 4/5 | **+21.0 %, supported** | 6.1 %, met |
+| HUST / UORED / PTB-XL | 15 / 20 bearings, 10 266 patients | 0.64 / 0.75 / 0.67 | — / 5.9 %; 2/5 / 2.4 %; 5/5 | +15.1 % / +15.2 % / **+15.9 %, supported** | — |
+
+The cascade's mean risk is below α on every rerun dataset (descriptively, 29 of 30 folds within α;
+the bound itself is on the expected risk). The per-window certificate lands on α on Speech Commands
+(0.052) and stays below it on Paderborn; on HUST, UORED and HAR at α = 0.1, unit-to-unit shift pushes it over.
 
 ### 10.5 Hypothesis verdicts
 
-On the main dataset none of H1–H7 is supported under the strict rule; on PTB-XL, H5 (a mixed menu beats any single family) is supported. H2 (the certificate holds) meets its threshold
-but is not statistically significant with 15 folds. The failures are informative: with one
-vibration channel and byte pricing, a single 16-byte representation is good enough almost
-everywhere, so adaptive choice has little to gain. It pays when CPU time is the scarce resource.
+On Paderborn none of H1–H7 is supported under the strict rule. H5 (a mixed menu beats any single
+family) is supported on Sleep-EDF, on PTB-XL and, exploratory, on Speech Commands with log-mel. H7's
+descriptive threshold (simulator vs real runtime) is met on three of four rerun datasets, with
+log-mel, and in Docker. H3 (adaptation pays) fails everywhere: on HAR Kai is 26 % cheaper than
+best-single but misses the deadline-miss target; on the other three it costs more. H1 and H4 fail everywhere. H6 fails
+everywhere in the run of record; a later re-measurement met it on Speech Commands by one crossing
+inside the measurement noise, which is not counted. Failed hypotheses stay failed. Exploratory
+follow-ups (ADR 0022): V0's mean risk is below α + 0.01 (non-inferiority) on Paderborn and Speech
+Commands, consistent with the bound; a gate that falls back to the static set picks the cheaper of
+the two but does not make Kai cheaper than best-single where V0 lost. Best-single itself is
+uncertified.
 
 ---
 
@@ -365,7 +378,7 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 |---|---|
 | A certified, swappable decision layer for edge offloading | built and tested |
 | A cascade runtime that pays for decision-making only when it helps | built; matches the best static policy in its certificate |
-| A map of when adaptive choice pays (by price regime) | measured; the CPU-priced advantage confirmed on 15 folds |
+| A map of when adaptive choice pays (by price regime) | measured; no advantage on this laptop once timings are pinned; a slow edge (Pi) is untested |
 | An honest benchmark for bearing diagnosis on unseen machines | built, with every model candidate recorded |
 | Validation on real edge hardware (Raspberry Pi) and measured energy | pending hardware |
 | A paper: workshop or benchmark track now; main track after the next steps | in preparation |
@@ -376,32 +389,35 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 
 | SDG 9 target | Contribution |
 |---|---|
-| **9.1** Reliable, resilient infrastructure | Predictive maintenance keeps machines running; the certificate bounds how often compression could hide a fault |
+| **9.1** Reliable, resilient infrastructure | Predictive maintenance keeps machines running; the certificate bounds, in expectation, how often compression changes the cloud model's decision |
 | **9.4** Resource-efficient, clean technology | Sends as little as 0.2 % of the raw data when that is safe: less bandwidth, radio energy and cloud compute |
-| **9.5** Research and technological capability | Open, reproducible benchmark with an honest evaluation protocol, across four datasets and two sensor domains |
+| **9.5** Research and technological capability | Open, reproducible benchmark with an honest evaluation protocol, across eight datasets and five sensor domains |
 | **9.c** Access to communication technology | Works on low-bandwidth, metered and intermittent links, where industrial IoT is hardest to deploy |
 
 ---
 
 ## 13. Limitations
 
-- The certificate controls agreement with the cloud model, not its correctness; that model is right
-  about six times in ten on unseen machines.
+- The certificate controls agreement with the cloud model, not its correctness; that model's
+  macro-F1 on unseen machines is 0.60 (majority class 0.18).
 - Few physical machines: 5 calibration bearings per fold. A machine-level guarantee would need
-  about 19.
+  at least 19 at α = 0.05.
 - The 16-byte latent runs the cloud model's feature extraction on the edge.
 - Timings come from a laptop; energy is modelled; the 4G traces are measured downlink logs, rescaled.
 - The certificate does not survive a change of operating condition; the audit loop is the remedy.
+- Group CRC (one sample per unit) needs ≥ 19 calibration units at α = 0.05 (9 at α = 0.1); Speech Commands has them at every α, Sleep-EDF only at α = 0.1.
+- Fold p-values are optimistic (folds of different repeats share test units); Holm is within a dataset.
 
 ---
 
 ## 14. Future work
 
-1. Raspberry Pi runs and measured energy.
-2. More units per class on industrial data (no public vibration set has more than 20 machines).
-3. Longer windows (256 ms) with a bearing-physics model (0.64 in cross-validation).
-4. Datasets with many more machines, for machine-level guarantees.
-5. Multi-sensor and multi-task settings, where representations genuinely trade off.
+1. Raspberry Pi runs and measured energy (the real test of H4).
+2. SHHS (≈ 5 800 subjects): enough units for group CRC and an unseen test of the agreed fixes.
+3. More units per class on industrial data (no public vibration set has more than 20 machines).
+4. Longer windows (256 ms) with a bearing-physics model (0.64 in cross-validation).
+5. Datasets with many more machines, for machine-level guarantees.
+6. Multi-sensor and multi-task settings, where representations genuinely trade off.
 
 ---
 
@@ -411,9 +427,9 @@ everywhere, so adaptive choice has little to gain. It pays when CPU time is the 
 flowchart LR
     P["Problem<br/>what should a sensor send?"] --> M["Method<br/>certify, then optimize"]
     M --> S["System<br/>edge + cloud + simulator"]
-    S --> R["Results<br/>certificate holds on unseen machines;<br/>adaptivity pays when CPU is scarce"]
+    S --> R["Results<br/>mean risk below α on unseen units;<br/>adaptivity fails its value test"]
     R --> I["Impact (SDG 9)<br/>reliable monitoring<br/>on cheap networks"]
 ```
 
-**One sentence:** Kai lets an industrial sensor send as little data as possible, adapt to the
-network in real time, and prove how rarely that changes the diagnosis.
+**One sentence:** Kai lets an industrial sensor send as little data as possible and bound, in
+expectation over exchangeable machines, how often that changes the cloud model's decision.
