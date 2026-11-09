@@ -99,6 +99,14 @@ def test_aci_tightens_under_excess_disagreement_and_relaxes_without() -> None:
     assert aci.lam == ALL
 
 
+def test_aci_threshold_equals_crc_on_its_sorted_copy() -> None:
+    m = np.random.default_rng(2).permutation(np.r_[np.random.default_rng(3).random(300), np.inf])
+    aci = AdaptiveLambda(m.copy(), alpha=0.1, gamma=0.03)
+    for t in range(200):
+        assert aci.lam == crc_threshold(m, aci.alpha_t)  # O(1) read == full re-sort
+        aci.update(t % 3 == 0)
+
+
 def test_aci_tracks_the_target_risk_after_a_shift() -> None:
     """After the disagreement process shifts, static λ over-shoots; ACI returns to ≈ α."""
     rng = np.random.default_rng(1)

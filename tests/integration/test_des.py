@@ -163,6 +163,22 @@ def test_audit_ships_raw_copies_and_feeds_aci() -> None:
     assert aci.alpha_t != 0.05  # the certifier received feedback
 
 
+def test_only_certified_decisions_feed_aci() -> None:
+    class Counting(Certifier):
+        calls = 0
+
+        def feedback(self, disagreed: bool) -> None:
+            self.calls += 1
+
+    cert = Counting(lam=0.05)
+    sc = Scenario(tr.static(1e6), deadline_ms=100, n_sensors=8, p_audit=1.0, seed=3)
+    res = simulate(sc, WORK, GreedySafe(MODEL, "liveness_first"), cert, MODEL)
+    sent = res.rep >= 0
+    certified = res.flag == FLAGS.index("certified")
+    assert (sent & ~certified).sum() > 20  # uncertified liveness sends happened ...
+    assert cert.calls == (sent & certified).sum()  # ... and none of them reached the certifier
+
+
 def test_aci_leaves_raw_only_again_because_raw_decisions_count_as_agreements() -> None:
     work = toy_workload(np.random.default_rng(8), 20000)
     work.d[:, 1:] = True  # every non-raw representation disagrees: the first audits hit hard

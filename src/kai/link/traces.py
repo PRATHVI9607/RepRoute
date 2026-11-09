@@ -8,6 +8,7 @@ be loaded with `from_csv` and are documented in `configs/scenario/traces/README.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,9 @@ class Trace:
     bps: F64  # throughput during [i·step, (i+1)·step), repeated cyclically
 
     def __post_init__(self) -> None:
+        # a NaN rate never satisfies finish_time's exit test: reject it here, not hang there
+        if not np.all(np.isfinite(self.bps)) or (self.bps < 0).any():
+            raise ValueError("trace throughput must be finite and non-negative")
         if self.bps.max() <= 0:
             raise ValueError("a trace needs at least one interval with non-zero throughput")
 
@@ -93,9 +97,19 @@ def cellular(
 
 
 def from_csv(path: Path, step_s: float, column: int = 0, scale: float = 1.0) -> Trace:
-    """Load a measured throughput trace: one sample per line (bps × `scale`)."""
-    bps = np.loadtxt(path, delimiter=",", usecols=column, ndmin=1) * scale
-    return Trace(path.stem, step_s, bps.astype(np.float64))
+    """Load a measured throughput trace: one sample per line (bps × `scale`).
+
+    Cached per (file, mtime): the returned trace is shared, so its `bps` is read-only.
+    """
+    path = Path(path)
+    return _load_csv(path, path.stat().st_mtime_ns, step_s, column, scale)
+
+
+@lru_cache(maxsize=256)
+def _load_csv(path: Path, _mtime_ns: int, step_s: float, column: int, scale: float) -> Trace:
+    bps = (np.loadtxt(path, delimiter=",", usecols=column, ndmin=1) * scale).astype(np.float64)
+    bps.setflags(write=False)
+    return Trace(path.stem, step_s, bps)
 
 
 class HarmonicMeanEstimator:
@@ -106,7 +120,7 @@ class HarmonicMeanEstimator:
         self._samples = [max(initial_bps, 1.0)]  # a measured trace may start in an outage
 
     def add(self, bps: float) -> None:
-        self._samples = [*self._samples[-(self.k - 1) :], max(bps, 1.0)]
+        self._samples = [*self._samples, max(bps, 1.0)][-self.k :]
 
     @property
     def bps(self) -> float:

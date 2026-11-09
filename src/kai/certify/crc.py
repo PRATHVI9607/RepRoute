@@ -37,7 +37,11 @@ def first_loss_threshold(ghat: F64, d: Bool) -> F64:
     """V0: m_i = min{ĝ_r(x_i) : d_r(x_i) = 1}, +inf if no representation disagrees.
 
     The safe-set loss is `L(x_i; λ) = max_{r ∈ S_λ} d_r = 1[λ ≥ m_i]`.
+    Raises ValueError on a NaN score outside the raw column: a NaN where d = 1 would otherwise
+    make that window "never lose" (anti-conservative), so it fails loudly instead.
     """
+    if np.isnan(ghat[:, 1:]).any():
+        raise ValueError("NaN sufficiency score: calibration would be anti-conservative")
     masked = np.where(d, ghat, np.inf)
     masked[:, 0] = np.inf
     out: F64 = masked.min(axis=1)
@@ -82,6 +86,8 @@ def policy_loss_threshold(ghat: F64, d: Bool, cost: F64) -> F64:
 def threshold_for_count(m_sorted: F64, k: int) -> float:
     """Largest λ with at most `k` calibration losses, i.e. `#{i : m_i ≤ λ} ≤ k`."""
     n = len(m_sorted)
+    if n and np.isnan(m_sorted[-1]):  # NaN sorts last; it would otherwise come back as λ = NaN
+        raise ValueError("NaN loss threshold m_i")
     if k < 0:
         return RAW_ONLY
     if k >= n or np.isinf(m_sorted[k]):
@@ -96,8 +102,38 @@ def crc_threshold(m: F64, alpha: float) -> float:
     Guarantees E[L(x_{n+1}; λ̂)] ≤ α for exchangeable data. With fewer than ⌈1/α⌉ - 1 calibration
     windows even zero observed losses fail the bound and the result is `RAW_ONLY`.
     """
-    n = len(m)
+    return threshold_for_count(np.sort(m), crc_allowed_losses(len(m), alpha))
+
+
+def crc_allowed_losses(n: int, alpha: float) -> int:
+    """Most calibration losses out of `n` that still satisfy (losses + 1)/(n + 1) ≤ α."""
     # the 1e-9 absorbs float error in α(n + 1), e.g. 0.05 * 20; it can exceed the bound by at
     # most 1e-9 / (n + 1)
-    allowed = math.floor(alpha * (n + 1) - 1 + 1e-9)
-    return threshold_for_count(np.sort(m), allowed)
+    return math.floor(alpha * (n + 1) - 1 + 1e-9)
+
+
+def group_crc_threshold(m: F64, groups: npt.NDArray[np.generic], alpha: float) -> float:
+    """CRC with one exchangeable sample per group (ADR 0020): the largest float λ with
+    (n_g·R̂_g(λ) + 1)/(n_g + 1) ≤ α, where R̂_g is the mean over groups of each group's mean loss.
+
+    For units (bearings, speakers) drawn exchangeably this bounds the expected mean loss of a new
+    unit, which window-level CRC does not when windows within a unit are dependent. With fewer
+    than ⌈1/α⌉ - 1 groups the result is `RAW_ONLY`. Singleton groups reduce to `crc_threshold`.
+    """
+    if np.isnan(m).any():
+        raise ValueError("NaN loss threshold m_i")
+    _, inv, size = np.unique(groups, return_inverse=True, return_counts=True)
+    n_g = len(size)
+    budget = (alpha * (n_g + 1) - 1) / n_g + 1e-9 / n_g  # same float slack as crc_threshold
+    if budget < 0:
+        return RAW_ONLY
+    order = np.argsort(m, kind="stable")
+    m_s = m[order]
+    # a window adds 1/(n_g·|its group|) to R̂_g once λ ≥ m_i
+    over = np.cumsum(1.0 / (n_g * size[inv[order]])) > budget
+    if not over.any():
+        return ALL
+    k = int(np.argmax(over))
+    if np.isinf(m_s[k]):
+        return ALL
+    return float(min(np.nextafter(m_s[k], -np.inf), ALL))

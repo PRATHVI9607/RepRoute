@@ -19,7 +19,7 @@ async def read_frame(reader: asyncio.StreamReader) -> fr.Frame:
     """Read one frame. Raises `IncompleteReadError` at EOF and `FrameError` on corruption."""
     header = await reader.readexactly(fr.HEADER_BYTES)
     rest = await reader.readexactly(fr.payload_len(header) + 4)
-    return fr.unpack(header + rest)
+    return fr.unpack_parts(header, rest)
 
 
 @dataclass(frozen=True)

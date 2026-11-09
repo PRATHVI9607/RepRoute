@@ -1,0 +1,7 @@
+# HAPT (UCI HAR raw) accelerometer magnitude, 6 activities (transfer sanity check); KAI_WORK=transfer/har
+id: har-v1
+windows: data/processed/har.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # best by inner CV on training users (experiments/model_search/har-v1.jsonl)
+bottleneck: generic

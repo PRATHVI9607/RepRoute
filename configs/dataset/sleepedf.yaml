@@ -1,0 +1,7 @@
+# Sleep-EDF Sleep Cassette EEG Fpz-Cz, W / N1 / N2 / N3 / REM (transfer dataset); paths relative to KAI_WORK=transfer/sleepedf
+id: sleepedf-v1
+windows: data/processed/sleepedf.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # best by inner CV on training subjects (experiments/model_search/sleepedf-v1.jsonl)
+bottleneck: generic

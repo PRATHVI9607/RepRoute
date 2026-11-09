@@ -37,6 +37,32 @@ def score(table: Table, kind: Literal["mlp", "logistic"] = "mlp", seed: int = 0)
     return Scored(table, predictor, predictor.predict(table.phi))
 
 
+def gate_auc(
+    phi: np.ndarray,
+    d: np.ndarray,
+    groups: np.ndarray,
+    rep_ids: tuple[str, ...],
+    seed: int = 0,
+    n_splits: int = 3,
+) -> float:
+    """Mean held-out AUC of ĝ_r against d_r on `ptrain`, unit-grouped CV (ADR 0022 gate).
+
+    Only non-raw representations with both outcomes in a held-out part count. NaN when none does.
+    """
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import GroupKFold
+
+    aucs: list[float] = []
+    for tr, te in GroupKFold(min(n_splits, len(np.unique(groups)))).split(phi, groups=groups):
+        g = fit_predictor(phi[tr], d[tr], rep_ids, "mlp", seed).predict(phi[te])
+        aucs.extend(
+            float(roc_auc_score(d[te, k], g[:, k]))
+            for k in range(1, len(rep_ids))
+            if 0 < d[te, k].sum() < len(te)
+        )
+    return float(np.mean(aucs)) if aucs else float("nan")
+
+
 def calibrate(
     ghat_cal: np.ndarray,
     d_cal: np.ndarray,

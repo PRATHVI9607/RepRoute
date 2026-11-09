@@ -136,3 +136,31 @@ def test_workload_samples_every_bearing_and_cells_start_at_their_own_trace_point
     assert np.array_equal(trace.bps, ev.make_trace(same_cell_other_alpha, seed=0).bps)
     other_cell = ev.Cell("markov_bursty", 1e6, 250.0, 0.0, 32, 0.05)
     assert not np.array_equal(trace.bps, ev.make_trace(other_cell, seed=0).bps)
+
+
+def test_traces_reject_non_finite_or_negative_rates() -> None:
+    """A NaN rate never satisfies `finish_time`'s exit test: it would loop forever."""
+    for bad in (np.nan, np.inf, -1.0):
+        with pytest.raises(ValueError, match="finite and non-negative"):
+            tr.Trace("bad", 1.0, np.array([1e6, bad]))
+
+
+def test_estimator_with_a_window_of_one_keeps_only_the_last_sample() -> None:
+    est = tr.HarmonicMeanEstimator(1e6, k=1)
+    for sample in (1e6, 1e4, 2e6):
+        est.add(sample)
+    assert est.bps == est.last_bps == 2e6
+
+
+def test_csv_traces_are_cached_read_only_and_reloaded_when_the_file_changes(tmp_path) -> None:
+    import os
+
+    path = tmp_path / "trace.csv"
+    path.write_text("1000\n2000\n")
+    first = tr.from_csv(path, step_s=1.0)
+    assert tr.from_csv(path, step_s=1.0) is first  # make_trace calls this per cell
+    with pytest.raises(ValueError, match="read-only"):
+        first.bps[0] = 0.0
+    path.write_text("3000\n")
+    os.utime(path, ns=(1, 1))  # a distinct mtime even on coarse-timestamp filesystems
+    assert tr.from_csv(path, step_s=1.0).bps.tolist() == [3000.0]

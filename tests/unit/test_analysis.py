@@ -127,6 +127,7 @@ def test_holm_and_one_sided_tests() -> None:
     assert stats.one_sided_p(v, 0.2, greater=False) > 0.99
     assert stats.one_sided_p(np.array([0.5, 0.5]), 0.2) == 1.0  # no spread is no evidence
     assert stats.one_sided_p(np.array([0.1]), 0.2) == 1.0
+    assert stats.one_sided_p(np.array([0.5, 0.6, -np.inf]), 0.2) == 1.0  # a failed unit
 
 
 def test_grid_helpers_ignore_cells_and_folds_that_carry_no_information() -> None:
@@ -151,11 +152,15 @@ def test_grid_helpers_ignore_cells_and_folds_that_carry_no_information() -> None
         [
             {"fold": f, **cell, "policy": p, "cost": c}
             for f, p, c in [("a", "ours", 1.0), ("a", "theirs", 0.0), ("b", "ours", 1.0),
-                            ("b", "theirs", 2.0), ("c", "ours", 3.0), ("c", "theirs", 4.0)]
+                            ("b", "theirs", 2.0), ("c", "ours", 3.0), ("c", "theirs", 4.0),
+                            ("d", "ours", 0.0), ("d", "theirs", 0.0)]
         ]
     )  # fmt: skip
     out = reduction(frame, "ours", "theirs", np.random.default_rng(0))
-    assert out["per_fold"] == pytest.approx([0.5, 0.25])  # fold a has nothing to reduce
+    # a fold whose reference is 0 is never dropped: worse than nothing (a) or unchanged (d)
+    assert out["per_fold"] == pytest.approx([-np.inf, 0.5, 0.25, 0.0])
+    assert out["mean"] == -np.inf
+    assert out["folds"] == ["a", "b", "c", "d"]
 
 
 def test_stored_grid_results_are_reused_and_extended_with_new_policies(
@@ -188,3 +193,15 @@ def test_stored_grid_results_are_reused_and_extended_with_new_policies(
         "a": 1.0,
         "b": 5.0,
     }  # ... and replaces its rows
+
+
+def test_noise_aware_crossings_drop_ties_within_the_measured_mad() -> None:
+    """ADR 0022: an argmin change smaller than the noise is a tie, a clear one stays."""
+    bw = np.array([1e5, 1e6, 1e7])
+    lat = np.array([[10.0, 12.0], [10.2, 10.1], [30.0, 11.0]])  # rep 1 wins from 1e6 up
+    assert len(phase.crossings(bw, lat)) == 1
+    tight = np.full_like(lat, 0.01)
+    loose = np.full_like(lat, 0.5)  # 2·√2·0.5 ≈ 1.4 ms > the 0.1 ms gap at 1e6
+    assert len(phase.crossings(bw, lat, tight)) == 1
+    assert phase.crossings(bw, lat, loose) == []
+    assert phase.crossings(bw, lat, np.full_like(lat, np.nan)) == []  # unknown noise: no claim

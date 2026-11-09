@@ -29,6 +29,13 @@ def folds(
     bottleneck: Annotated[
         str, typer.Option(help="R6 encoder: generic | teacher_front; default: the dataset's")
     ] = "",
+    bottleneck_dim: int = 16,
+    extra_wavelets: Annotated[
+        bool, typer.Option(help="add the r2c/r2d mid-size wavelets (ADR 0016, exploratory)")
+    ] = False,
+    logmel: Annotated[
+        bool, typer.Option(help="add the r10a/r10b log-mel grids (ADR 0018, exploratory)")
+    ] = False,
     device: str = "auto",
     force: bool = False,
     overrides: Overrides = None,
@@ -51,6 +58,9 @@ def folds(
         epochs_latent,
         head_trials=head_trials,
         bottleneck=bottleneck or cfg.dataset.bottleneck,
+        bottleneck_dim=bottleneck_dim,
+        extra_wavelets=extra_wavelets,
+        logmel=logmel,
         seed=seed,
         device=device,
     )

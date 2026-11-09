@@ -383,3 +383,29 @@ class VQVAE(nn.Module):
         vq_loss = F.mse_loss(q, z.detach()) + 0.25 * F.mse_loss(z, q.detach())
         q = z + (q - z).detach()  # straight-through gradient
         return self.decoder(self.up(q.transpose(1, 2))), vq_loss
+
+
+class LogMelNet(nn.Module):
+    """R10 cloud head: a small 2-D CNN on the log-mel grid plus the window's peak level (ADR 0018).
+
+    Input [B, 1, 1 + n_frames * n_mels], the flat output of `LogMel.decode_for_head`, so that it
+    runs through `predict` and `export_onnx` like every other model.
+    """
+
+    def __init__(self, n_classes: int, n_mels: int, n_frames: int) -> None:
+        super().__init__()
+        self.n_mels, self.n_frames = n_mels, n_frames
+        c = (1, 32, 64, 128)
+        layers: list[nn.Module] = []
+        for i in range(3):
+            layers += [nn.Conv2d(c[i], c[i + 1], 3, padding=1), nn.BatchNorm2d(c[i + 1]), nn.ReLU()]
+            if i < 2 and min(n_mels, n_frames) >> (i + 1) >= 2:  # pool while the grid stays ≥ 2
+                layers.append(nn.MaxPool2d(2))
+        self.features = nn.Sequential(*layers)
+        self.linear = nn.Linear(c[-1] + 1, n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.flatten(1)
+        grid = x[:, 1:].reshape(-1, 1, self.n_frames, self.n_mels)
+        h = self.features(grid).mean((2, 3))
+        return self.linear(torch.cat([h, x[:, :1]], 1))

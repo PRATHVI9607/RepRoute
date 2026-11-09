@@ -35,6 +35,7 @@ def table(frame: pd.DataFrame, fmt: str = "{:.3g}") -> str:
     return "\n".join([head, rule, *rows])
 
 
+NI_MARGIN = 0.01  # ADR 0022: H2a non-inferiority margin, chosen before computing
 FAMILY = ("H1", "H2a", "H2b", "H3", "H4", "H5", "H6", "H7")  # the Holm family (hypotheses.md)
 _tested: dict[
     str, bool | None
@@ -98,6 +99,11 @@ def seed_variance() -> pd.DataFrame | None:
     )
 
 
+def _folds(values: list[float] | np.ndarray, _ids: object = None) -> np.ndarray:
+    """Per-fold values: the pre-registered test units."""
+    return np.asarray(values, dtype=np.float64)
+
+
 def window_period_ms() -> float:
     """The window period the profile was measured at (64 ms for the Paderborn windows)."""
     profile = work() / "artifacts" / "profiles" / "local.json"
@@ -114,6 +120,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
     title = "# Results" if dataset == "Paderborn" else f"# Results — {dataset} (transfer run)"
     lines = [title, ""]
     registry = work() / "experiments" / "registry.parquet"
+    n_classes = (e["e1"] or {}).get("n_classes")
+    task = f"{dataset} {n_classes}-class task" if n_classes else f"{dataset} task"
     if registry.exists():
         reg = pd.read_parquet(registry)
         last = reg.iloc[-1]
@@ -122,7 +130,7 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             f"Last run: git `{last.git_sha[:10]}`{' (uncommitted tree)' if last.git_dirty else ''}, "
             f"lockfile `{last.lock_hash[:10]}`, {last.created_utc}.",
             "",
-            f"Everything below is the **{dataset} 3-class task with leave-bearings-out (L1) folds**, the "
+            f"Everything below is the **{task} with leave-bearings-out (L1) folds**, the "
             "`metered_cellular` preset unless stated, timings from the development laptop, energy "
             "modelled. Read `docs/research/hypotheses.md` for the pre-registered definitions and "
             "`docs/theory/limitations.md` before quoting any number.",
@@ -170,6 +178,15 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "(the cloud-side head time of raw, measured on this machine) and would send 1 byte; the R6 encoder "
             f"takes {prof.set_index('rep_id').t_enc_ms.get('r6_bottleneck', float('nan')):.2f} ms and sends "
             f"{prof.set_index('rep_id').size_mean_bytes.get('r6_bottleneck', float('nan')):.0f} bytes.",
+            *(
+                [
+                    "- The log-mel grids (`r10a_logmel`, `r10b_logmel`) were chosen on the training speakers "
+                    "of fold r0f0 (ADR 0018): an exploratory choice, and a possible selection leak into "
+                    "the other folds' results for these two representations."
+                ]
+                if "r10a_logmel" in set(prof.rep_id)
+                else []
+            ),
             "",
             table(
                 prof[
@@ -203,24 +220,47 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             rows.append(
                 {
                     "α": alpha, "variant": variant, "risk (mean over folds)": s[f"{tag}/risk_mean"],
+                    "risk (mean over test units)": s.get(f"{tag}/risk_unit_mean", float("nan")),
                     "95 % block-bootstrap CI": f"[{s[f'{tag}/risk_ci_lo']:.3f}, {s[f'{tag}/risk_ci_hi']:.3f}]",
-                    "folds within α": f"{round(s[f'{tag}/folds_within_alpha'] * len(sub))}/{len(sub)}",
+                    "folds within α (descriptive)": f"{round(s[f'{tag}/folds_within_alpha'] * len(sub))}/{len(sub)}",
                     "windows with a non-raw option": s[f"{tag}/non_raw_available"],
                     "cheapest safe bytes / raw": s[f"{tag}/bytes_vs_raw"],
                 }
             )  # fmt: skip
         v0 = res[res.variant == "v0"]
         pvalues["H2a"] = max(
-            stats.one_sided_p(sub.risk.to_numpy(), a, greater=False)
+            stats.one_sided_p(_folds(sub.risk.to_numpy(), sub.fold.tolist()), a, greater=False)
             for a, sub in v0.groupby("alpha")
         )
+        # ADR 0022, exploratory and outside the Holm family: H0 mean risk ≥ α + margin
+        ni_p = max(
+            stats.one_sided_p(_folds(sub.risk.to_numpy()), a + NI_MARGIN, greater=False)
+            for a, sub in v0.groupby("alpha")
+        )
+        ni_means = ", ".join(f"α = {a:g}: {sub.risk.mean():.4f}" for a, sub in v0.groupby("alpha"))
         lines += [
             "## Certificate validity (E2)",
             "",
             f"- **H2a** (V0, expected risk ≤ α on held-out bearings): {verdict(s['H2a_pass'], 'H2a')}.",
             f"- **H2b** (V1, ≥ 90 % of folds within α): {verdict(s['H2b_pass'])}.",
             "- Risk is the safe-set loss (worst admissible policy) for V0 / V1, and the greedy policy's "
-            "loss for V2, which only promises that policy.",
+            "loss for V2, which only promises that policy. *Mean over folds* pools each fold's test windows; "
+            "*mean over test units* first averages each bearing's windows, so every unit weighs the same. "
+            "The CI resamples whole bearings (a bearing tested in several folds is one block).",
+            "- The H2a test (one-sided, mean < α) cannot reject by design for a method whose expected risk "
+            "lands at α, as CRC's does, so H2a cannot be *supported* under the pre-registered rule (threshold met "
+            "**and** Holm rejection) even when the bound holds.",
+            f"- **H2a non-inferiority** (exploratory, ADR 0022; margin {NI_MARGIN:g} fixed before it was "
+            f"computed; not in the Holm family): one-sided t-test over folds of mean V0 risk < α + {NI_MARGIN:g}, "
+            f"maximum p over α = **{ni_p:.3g}** ({'rejects' if ni_p < 0.05 else 'does not reject'} at 0.05). "
+            f"Mean risk {ni_means}."
+            + (
+                " Fold p-values are optimistic: folds of different repeats share test units."
+                if v0.fold.str.extract(r"_r(\d+)f")[0].nunique() > 1
+                else ""
+            ),
+            "- *Folds within α* is descriptive: CRC bounds the expected risk, so even under exact "
+            "exchangeability about half of the folds (≈ 47 %) can exceed α.",
             "- Exchangeability control (V0 calibrated on a random half of the calibration windows and tested on the "
             "other half, mean of 20 halvings — exchangeable by construction, so the theorem's premise holds; "
             "a diagnostic, not a generalisation result): "
@@ -241,14 +281,16 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
         )
         pf = s["per_fold"]
         # H1 has two parts; the count of dominant representations has no test, so it gates the p
+        # (b) is the pre-registered total_B4 / total_oracle − 1 per fold (H1_cost is 1 − o/b)
+        ids = s.get("per_fold_ids")
         pvalues["H1"] = (
-            stats.one_sided_p(1 / (1 - np.array(pf["H1_cost"])) - 1, 0.25)
+            stats.one_sided_p(_folds(1 / (1 - np.array(pf["H1_cost"])) - 1, ids), 0.25)
             if s["H1/reps_dominant_in_10pct_of_cells"] >= 3
             else 1.0
         )
         pvalues["H3"] = max(
-            stats.one_sided_p(np.array(pf["H3_cost"]), 0.20),
-            stats.one_sided_p(np.array(pf["H3_slo"]), 0.30),
+            stats.one_sided_p(_folds(pf["H3_cost"], ids), 0.20),
+            stats.one_sided_p(_folds(pf["H3_slo"], ids), 0.30),
         )
         lines += [
             "## Main comparison over the scenario grid (E3)",
@@ -272,16 +314,29 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             f"bursty traces: **{s['H3/slo_reduction_vs_b5_bursty']:+.1%}** reduction, CI "
             f"[{s['H3/slo_reduction_vs_b5_ci_lo']:+.1%}, {s['H3/slo_reduction_vs_b5_ci_hi']:+.1%}] (need ≥ +30 %).",
             f"  Geometric-mean per-cell cost ratio Kai / best-single: {s['H3/cost_geo_ratio_vs_b4']:.3f}.",
+            *(
+                [
+                    "- Exploratory (ADR 0022), not part of H3: `kai_s1_auto` uses the static set in the "
+                    f"{s['x/kai_s1_auto/n_static_folds']} of {s['n_folds']} folds where the predictor's unit-grouped "
+                    "CV AUC on ptrain is below 0.55, and V0 elsewhere. Cost versus best-single: "
+                    f"**{s['x/kai_s1_auto/cost_reduction_vs_b4']:+.1%}** reduction. Gate AUC per fold: "
+                    + ", ".join(f"{a:.2f}" for a in s["x/kai_s1_auto/gate_auc"].values())
+                    + "."
+                ]
+                if "x/kai_s1_auto/gate_auc" in s
+                else []
+            ),
             "",
             "Means over all cells, folds and the three α levels (cost in bytes-equivalent). "
             "`risk_certified_joint` = disagreeing *and* certified, per offered window: the quantity Proposition 1 "
             "bounds, for Kai with V0 / V1 only. `risk_certified` = disagreement among certified decisions, which "
             "divides by the certified rate and is not bounded. `risk_sent` = disagreement of whatever was "
-            "transmitted. Baselines carry no certificate; `kai_s1_v2` is calibrated for the nominal state only "
+            "transmitted. Baselines carry no certificate. B4 (best-single) and B8 screen representations with a marginal CRC-style check on calib, but that check bounds only a representation named before calibration; applied to every representation, keeping the cheapest that passes, it bounds nothing (multiple testing). The certified fixed-choice comparator is `kai_s1_v0_static`; `kai_s1_v2` is calibrated for the nominal state only "
             "and is exploratory here (docs/theory/proposition1.md). `kai_s1_cascade` is V0 on the score min(ĝ, prior) "
             "with a value-of-information gate on the probe (ADR 0011, exploratory). `kai_s1_v0_static` is V0 with constant "
             "scores — one safe set for every window, no probe or predictor on the edge — added after the "
-            "first results and exploratory (ADR 0008). The pooled risks are comparable to no single "
+            "first results and exploratory (ADR 0008). `kai_s1_v0_group` is V0 calibrated with one sample per "
+            "calibration unit (ADR 0020, exploratory; raw only when there are fewer than ⌈1/α⌉ − 1 units). The pooled risks are comparable to no single "
             "α: the table after this one splits them.",
             "",
             table(
@@ -297,6 +352,7 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "kai_s1_v0",
             "kai_s1_cascade",
             "kai_s1_v0_static",
+            "kai_s1_v0_group",
             "kai_s1_v1",
             "kai_s1_v1_per_rep",
             "kai_s2_v0",
@@ -394,12 +450,16 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             {
                 "policy": list(costs),
                 "total cost / Kai": [v / costs["kai_s1_v0"] for v in costs.values()],
-                "risk (certified)": [s[f"risk_certified/{k}"] for k in costs],
+                "risk_certified (among certified; not α-bounded)": [
+                    s[f"risk_certified/{k}"] for k in costs
+                ],
                 "SLO violation": [s[f"slo/{k}"] for k in costs],
             }
         ).sort_values("total cost / Kai")
         if name == "e5":
-            pvalues["H5"] = stats.one_sided_p(np.array(s["per_fold"]["H5"]), 0.10)
+            pvalues["H5"] = stats.one_sided_p(
+                _folds(s["per_fold"]["H5"], s.get("per_fold_ids")), 0.10
+            )
         lines += [
             f"## Ablations (E5) — {title}",
             "",
@@ -437,7 +497,22 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
                 ]
             ),
             f"- Exploratory, not part of H6 — the same test inside the waveform-preserving family (raw, lossless, wavelets), where a break-even exists: {s['family/n_theory']} predicted, {s['family/n_measured']} measured, {s['family/n_matched']} matched, worst relative error {pct(s['family/max_rel_error'])}.",
+            *(
+                [
+                    "- This E4 run is the ADR 0022 re-measurement. The H6 verdict of record is the pre-registered "
+                    "run before it (in the registry; updates.md §7); a verdict that changes between measurements of "
+                    "the same thing is not counted as met.",
+                    "- Exploratory (ADR 0022), not part of H6 — a measured argmin change counts only if the latency "
+                    "gap exceeds 2·√(MAD_lo² + MAD_hi²) at both grid points: "
+                    f"{s['H6_noise_aware/n_measured']} changes remain, {s['H6_noise_aware/n_matched']} match a "
+                    f"predicted boundary, worst relative error {pct(s['H6_noise_aware/max_rel_error'])} → "
+                    + ("threshold met." if s["H6_noise_aware/pass"] else "threshold not met."),
+                ]
+                if "H6_noise_aware/n_measured" in s
+                else []
+            ),
             f"- Latency model versus measured latency: median absolute error {s['median_latency_model_error']:.1%}; mean signed error {bias} (positive = reality slower than the model).",
+            f"- Cells measured with no window delivered (no latency, cannot place a crossing): {s.get('n_cells_unmeasured', 'not recorded')}.",
             "- Measured on real sockets with token-bucket pacing, on the same laptop as the profile.",
             "",
         ]
@@ -460,7 +535,12 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             f"## {heading}",
             "",
             f"- **H7**: {verdict(s['H7_pass'])}. Worst p50 latency gap **{s['max_p50_rel_gap']:.1%}** (need ≤ 10 %); "
-            f"lowest agreement of the chosen representation **{s['min_selection_agreement']:.1%}** (need ≥ 85 %).",
+            f"lowest agreement of the chosen representation **{s['min_selection_agreement']:.1%}** (need ≥ 85 %)"
+            + (
+                f"; **{s['n_rows_unmeasured']}** rate(s) delivered nothing, which fails H7."
+                if s.get("n_rows_unmeasured")
+                else "."
+            ),
             f"- Backend: {s['backend']}.",
             "",
             table(pd.DataFrame(s["rows"])),
@@ -521,7 +601,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "",
             f"Probe + predictor + selector take {s['overhead_ms_probe_pred_select']:.3f} ms per window: "
             f"{s['overhead_vs_cheapest_encoder']:.2f}× the cheapest encoder and "
-            f"{s['overhead_share_of_64ms_window']:.2%} of a window period.",
+            f"{s.get('overhead_share_of_window_period', s.get('overhead_share_of_64ms_window', float('nan'))):.2%} "
+            f"of a window period ({s.get('window_period_ms', float('nan')):.1f} ms).",
             "",
         ]
 
@@ -545,7 +626,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "## Privacy probe (E10, exploratory)",
             "",
             f"Accuracy of a logistic-regression attacker on what the cloud decodes, mean of {s['n_folds']} folds. "
-            f"Chance is {s['r0_raw/condition_chance']:.2f} for the operating condition (four conditions) and "
+            f"Chance is {s['r0_raw/condition_chance']:.2f} for the operating condition "
+            f"({round(1 / s['r0_raw/condition_chance'])} conditions) and "
             f"{s['r0_raw/reid_chance']:.2f} on average for re-identification among a fold's test bearings. "
             "Re-identification is fitted and scored on windows of the same bearings by construction: it measures "
             "the attack, it is not a diagnosis result. No hypothesis was registered for this probe.",
@@ -564,7 +646,9 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
         lines += [
             "## Multiple testing",
             "",
-            "One-sided t-tests of each pre-registered threshold over folds, Holm–Bonferroni at 0.05 across "
+            "One-sided t-tests of each pre-registered threshold over "
+            + "folds, as pre-registered (folds of different repeats share test bearings, so these "
+            "p-values are optimistic), " + "Holm–Bonferroni at 0.05 across "
             "all eight hypotheses. H2b, H4, H6 and H7 have no replication unit in this pass: they are "
             "descriptive and enter the family with p = 1. A hypothesis is called *supported* only if its "
             "threshold is met **and** Holm rejects the null.",

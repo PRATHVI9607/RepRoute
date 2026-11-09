@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -28,13 +29,14 @@ from kai.contracts.frame import OVERHEAD_BYTES
 from kai.contracts.schemas import FLAGS, EnergyModel, LambdaTable, Partition, Prices, RepProfile
 from kai.link import traces as tr
 from kai.link.des import Result, Scenario, Workload, simulate
+from kai.reps.registry import WAVEFORM_REPS
 from kai.select import baselines as bl
 from kai.select.base import Mission, Selector
 from kai.select.cost import CostModel, Overheads, Profiles, State
 from kai.select.policies import CascadeSafe, GreedySafe, GreedyStatic, MpcSafe, Oracle, Static
 from kai.tasks.pipeline import Table
 
-COMPRESSION = ("r0_raw", "r1_lossless", "r2a_wavelet", "r2b_wavelet")
+COMPRESSION = WAVEFORM_REPS
 MEASURED_PREFIX = "ucc4g_"  # links named ucc4g_<mobility class> replay measured logs
 MEASURED_DIR = ROOT / "data/raw/traces/ucc4g"  # one set of traces for every dataset
 LEARNED = ("r0_raw", "r5_ae", "r6_bottleneck", "r7_vq")
@@ -97,6 +99,8 @@ class FoldCtx:
     window_period_ms: float
     static_safe: dict[float, np.ndarray]  # per α: the window-independent safe set (V0, constant ĝ)
     cascade: dict[float, tuple[np.ndarray, float]]  # per α: (prior, λ) of the cascade (ADR 0011)
+    group: dict[float, float]  # per α: V0 with one calibration sample per unit (ADR 0020)
+    m_cal: np.ndarray  # per calibration window: the first-loss threshold (CRC, ACI ladder)
 
     @property
     def rep_ids(self) -> tuple[str, ...]:
@@ -139,7 +143,10 @@ def load_fold(
     d_ptrain = scored.table.d[scored.table.of("ptrain")]
     static = {a: static_safe_set(d_ptrain, d_cal, a) for a in alphas}
     cascade = {a: cascade_certificate(ghat_cal, d_cal, d_ptrain, a) for a in alphas}
-    return FoldCtx(scored, model, lambdas, window_period_ms, static, cascade)
+    m_cal = crc.first_loss_threshold(ghat_cal, d_cal)
+    units = scored.table.bearing_id[scored.table.of("calib")]
+    group = {a: crc.group_crc_threshold(m_cal, units, a) for a in alphas}
+    return FoldCtx(scored, model, lambdas, window_period_ms, static, cascade, group, m_cal)
 
 
 def scored_fold(fold_dir: Path, kind: Literal["mlp", "logistic"] = "mlp", seed: int = 0) -> Scored:
@@ -188,8 +195,11 @@ def v2_threshold(ctx: FoldCtx, cell: Cell) -> float:
 
 def policies(
     ctx: FoldCtx, cell: Cell, mission: Mission, which: str = "main"
-) -> dict[str, tuple[Selector, Certifier]]:
-    """name → (selector, certifier). `which`: "main" (E3) or "ablation" (E5)."""
+) -> dict[str, Callable[[], tuple[Selector, Certifier]]]:
+    """name → builder of (selector, certifier). `which`: "main" (E3) or "ablation" (E5).
+
+    Builders are lazy: a run restricted to a few policies never fits V2 or the best single.
+    """
     model, ids, alpha = ctx.model, ctx.rep_ids, cell.alpha
     table = ctx.lambdas[alpha]
     lam0 = threshold(table, "v0", alpha, ids)
@@ -209,75 +219,87 @@ def policies(
     if which == "main":
         marginal = bl.marginally_admissible(d_cal, alpha)
         return {
-            "b1_raw": (Static(0, "b1_raw"), cert0),
-            "b2_compress": (Static(idx("r2a_wavelet"), "b2_compress"), cert0),
-            "b3_features": (Static(idx("r3_spectral"), "b3_features"), cert0),
-            "b4_best_single": (
+            "b1_raw": lambda: (Static(0, "b1_raw"), cert0),
+            "b2_compress": lambda: (Static(idx("r2a_wavelet"), "b2_compress"), cert0),
+            "b3_features": lambda: (Static(idx("r3_spectral"), "b3_features"), cert0),
+            "b4_best_single": lambda: (
                 Static(bl.best_single(marginal, static, nominal), "b4_best_single"),
                 cert0,
             ),
-            "b5_context_blind": (bl.ContextBlind(model), cert0),
-            "b8_profile_table": (bl.ProfileTable(lookup, marginal, cell.deadline_ms), cert0),
-            "b9_adaptive_threshold": (
+            "b5_context_blind": lambda: (bl.ContextBlind(model), cert0),
+            "b8_profile_table": lambda: (
+                bl.ProfileTable(lookup, marginal, cell.deadline_ms),
+                cert0,
+            ),
+            "b9_adaptive_threshold": lambda: (
                 bl.AdaptiveThreshold((idx("r2b_wavelet"), idx("r2a_wavelet"), idx("r1_lossless"))),
                 cert0,
             ),
-            "b10_two_mode": (
+            "b10_two_mode": lambda: (
                 bl.TwoModeSwitch(lookup, idx("r6_bottleneck"), idx("r1_lossless")),
                 cert0,
             ),
-            "b11_cms": (
+            "b11_cms": lambda: (
                 bl.ConformalModelSelection(lookup, bl.ltt_admissible(d_cal, alpha, 0.1), mission),
                 cert0,
             ),
-            "b13_adaedge": (
+            "b13_adaedge": lambda: (
                 bl.AdaEdgeBandit(lookup, idx("r1_lossless"), np.random.default_rng(13)),
                 cert0,
             ),
-            "kai_s1_v0": (GreedySafe(model, mission), cert0),
-            "kai_s1_v1": (
+            "kai_s1_v0": lambda: (GreedySafe(model, mission), cert0),
+            "kai_s1_v1": lambda: (
                 GreedySafe(model, mission),
                 Certifier(threshold(table, "v1", alpha, ids)),
             ),
-            "kai_s1_v1_per_rep": (
+            "kai_s1_v1_per_rep": lambda: (
                 GreedySafe(model, mission),
                 Certifier(threshold(table, "v1_per_rep", alpha, ids)),
             ),
             # V0 on min(ĝ, prior): probe only when it can pay for itself (ADR 0011)
-            "kai_s1_cascade": (
+            "kai_s1_cascade": lambda: (
                 CascadeSafe(model, mission),
                 Certifier(ctx.cascade[alpha][1], prior=ctx.cascade[alpha][0]),
             ),
             # the same certificate with constant scores: one safe set, no probe, no predictor
-            "kai_s1_v0_static": (
+            "kai_s1_v0_static": lambda: (
                 GreedyStatic(lookup, mission),
                 Certifier(np.where(ctx.static_safe[alpha], crc.ALL, crc.RAW_ONLY)),
             ),
-            "kai_s1_v2": (GreedySafe(model, mission), Certifier(v2_threshold(ctx, cell))),
-            "kai_s2_v0": (MpcSafe(model, period, mission=mission), cert0),
-            "kai_s1_v0_live": (GreedySafe(model, "liveness_first"), cert0),
-            "oracle": (Oracle(lookup, mission), cert0),
+            "kai_s1_v2": lambda: (GreedySafe(model, mission), Certifier(v2_threshold(ctx, cell))),
+            "kai_s1_v0_group": lambda: (GreedySafe(model, mission), Certifier(ctx.group[alpha])),
+            "kai_s2_v0": lambda: (MpcSafe(model, period, mission=mission), cert0),
+            "kai_s1_v0_live": lambda: (GreedySafe(model, "liveness_first"), cert0),
+            "oracle": lambda: (Oracle(lookup, mission), cert0),
         }
     no_enc = replace(model, profiles=model.profiles.without_encode_cost())
     learned_free = tuple(r for r in ids if r not in LEARNED[1:])
-    calib_m = crc.first_loss_threshold(*ctx.scored.part("calib"))
     return {
-        "kai_s1_v0": (GreedySafe(model, mission), cert0),
-        "no_encode_cost": (GreedySafe(no_enc, mission), cert0),
-        "no_queue_awareness": (GreedySafe(model, mission, queue_aware=False), cert0),
-        "no_certificate": (GreedySafe(model, mission), Certifier(alpha)),  # raw ĝ ≤ α, uncalibrated
-        "no_predictor": (
+        "kai_s1_v0": lambda: (GreedySafe(model, mission), cert0),
+        "no_encode_cost": lambda: (GreedySafe(no_enc, mission), cert0),
+        "no_queue_awareness": lambda: (GreedySafe(model, mission, queue_aware=False), cert0),
+        "no_certificate": lambda: (
+            GreedySafe(model, mission),
+            Certifier(alpha),
+        ),  # raw ĝ ≤ α, uncalibrated
+        "no_predictor": lambda: (
             bl.ProfileTable(lookup, bl.marginally_admissible(d_cal, alpha), cell.deadline_ms),
             cert0,
         ),
-        "compression_only": (GreedySafe(model, mission), Certifier(lam0, menu=mask(COMPRESSION))),
-        "learned_only": (GreedySafe(model, mission), Certifier(lam0, menu=mask(LEARNED))),
-        "no_learned": (GreedySafe(model, mission), Certifier(lam0, menu=mask(learned_free))),
-        "audit_aci": (
+        "compression_only": lambda: (
             GreedySafe(model, mission),
-            Certifier(lam0, aci=AdaptiveLambda(calib_m, alpha)),
+            Certifier(lam0, menu=mask(COMPRESSION)),
         ),
-        "oracle": (Oracle(lookup, mission), cert0),
+        "learned_only": lambda: (GreedySafe(model, mission), Certifier(lam0, menu=mask(LEARNED))),
+        "no_learned": lambda: (
+            GreedySafe(model, mission),
+            Certifier(lam0, menu=mask(learned_free)),
+        ),
+        "audit_aci": lambda: (
+            GreedySafe(model, mission),
+            Certifier(lam0, aci=AdaptiveLambda(ctx.m_cal, alpha)),
+        ),
+        "oracle": lambda: (Oracle(lookup, mission), cert0),
     }
 
 
@@ -309,9 +331,10 @@ def metrics(
         "energy_j": float(energy.mean()),
         "edge_ms": float(res.edge_ms.mean()),
         "slo_violation": float(res.late.mean()),
+        # nothing certified: the rate is undefined (NaN, skipped by means), never a perfect 0
         "risk_certified": float(res.disagreed[certified & sent].mean())
         if (certified & sent).any()
-        else 0.0,
+        else float("nan"),
         # what Proposition 1 bounds: disagreeing *and* certified, per offered window. The rate
         # among certified decisions above divides by P(certified) and is not bounded by α.
         "risk_certified_joint": float((res.disagreed & certified & sent).sum() / n),
@@ -346,19 +369,25 @@ def run_cell(
     seed: int,
     only: tuple[str, ...] = (),
     late_cap_factor: float = 10.0,
+    aci_p_audit: float = 0.0,
 ) -> list[dict[str, float | str]]:
-    """Simulate every policy of the zoo on one cell. Returns one metrics row per policy."""
+    """Simulate every policy of the zoo on one cell. Returns one metrics row per policy.
+
+    `aci_p_audit` is the audit rate of a policy whose certifier runs ACI: it learns from audits.
+    """
     work = ctx.workload(n_windows)
     scenario = Scenario(
         make_trace(cell, seed), cell.deadline_ms, cell.load, cell.n_sensors, ctx.window_period_ms,
         cell.rtt_ms, cell.energy_budget_j, cell.storage_bytes, cell.p_audit, seed,
     )  # fmt: skip
     rows: list[dict[str, float | str]] = []
-    for name, (selector, certifier) in policies(ctx, cell, mission, which).items():
+    for name, build in policies(ctx, cell, mission, which).items():
         if only and name not in only:
             continue
-        # a learning baseline needs audits to learn from; it pays for their raw copies
-        wanted = max(scenario.p_audit, getattr(selector, "audit_rate", 0.0))
+        selector, certifier = build()
+        # a learning baseline (or ACI) needs audits to learn from; it pays for their raw copies
+        aci_rate = aci_p_audit if certifier.aci is not None else 0.0
+        wanted = max(scenario.p_audit, getattr(selector, "audit_rate", 0.0), aci_rate)
         res = simulate(replace(scenario, p_audit=wanted), work, selector, certifier, ctx.model)
         audited_cell = replace(cell, p_audit=wanted)
         rows.append({"policy": name, **metrics(res, audited_cell, ctx.model, late_cap_factor)})

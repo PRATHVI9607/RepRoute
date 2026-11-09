@@ -120,21 +120,29 @@ def profile_menu(
     profiles, curves = [], {}
     for rep in reps:
         payloads = [rep.encode(w) for w in windows]
-        decoded = [rep.decode_for_head(p) for p in payloads]
 
         def encode(i: int, rep: BaseRep = rep) -> object:
             return rep.encode(windows[i])
 
-        def decode(i: int, rep: BaseRep = rep, payloads: list[bytes] = payloads) -> object:
-            return rep.decode_for_head(payloads[i])
+        parts: list[tuple[float, float]] = []
 
-        def head_of(i: int, rep: BaseRep = rep, decoded: list[np.ndarray] = decoded) -> object:
-            return zoo.head(rep.rep_id, decoded[i])
+        def cloud(
+            i: int,
+            rep: BaseRep = rep,
+            payloads: list[bytes] = payloads,
+            parts: list[tuple[float, float]] = parts,
+        ) -> object:
+            _, t_dec, t_head = zoo.decide_timed(rep.rep_id, payloads[i])
+            parts.append((t_dec, t_head))
+            return None
 
         with co_tenants(0):
             enc = time_ms(encode, n, repeats, period_ms=period_ms)
-            dec = time_ms(decode, n, repeats, period_ms=period_ms)
-            head = time_ms(head_of, n, repeats, period_ms=period_ms)
+            # decode and head back to back, as the server runs them: timed apart, each call
+            # starts cold after the idle period and the sum over-charges the cloud (ADR 0019).
+            # Each part is timed inside the same call, so their sum is what the server spends.
+            time_ms(cloud, n, repeats, period_ms=period_ms)
+        dec, head = np.array(parts[-repeats:]).T  # the timed calls, after the warm-up ones
         curve = {0.0: {"median_ms": float(np.median(enc)), "mean_ms": float(enc.mean())}}
         if with_load:
             for rho, m in LOAD_TENANTS.items():

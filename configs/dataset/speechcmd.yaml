@@ -1,0 +1,7 @@
+# Speech Commands v0.02, 10 keywords (transfer dataset); paths relative to KAI_WORK=transfer/speechcmd
+id: speechcmd-v1
+windows: data/processed/speechcmd.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # best by inner CV on training speakers (experiments/model_search/speechcmd-v1.jsonl)
+bottleneck: generic

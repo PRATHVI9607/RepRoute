@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import multiprocessing as mp
 import platform
 import shutil
@@ -25,12 +26,13 @@ from kai.bench.registry import record
 from kai.certify import crc
 from kai.certify.runtime import Certifier
 from kai.cloud.heads import HeadZoo
-from kai.contracts.schemas import RepProfile
+from kai.contracts.schemas import RepProfile, config_hash
 from kai.contracts.windows import WindowSet
 from kai.data.splits import load_manifest
 from kai.edge.bundle import Bundle
 from kai.link.des import Result
 from kai.profile.profiler import co_tenants, measure_overheads, profile_menu, profile_pipeline
+from kai.reps.registry import WAVEFORM_REPS
 from kai.select.base import Window
 from kai.select.cost import CostModel, Overheads, Profiles, State
 from kai.select.policies import GreedySafe
@@ -111,9 +113,47 @@ def finish(
     (out / "summary.json").write_text(json.dumps(summary, indent=1, default=float))
     if frame is not None:
         frame.to_parquet(out / "results.parquet", index=False)
+        (out / "results.meta.json").write_text(json.dumps(provenance(cfg)))
     flat = {k: float(v) for k, v in summary.items() if isinstance(v, int | float | np.floating)}
     record(name, as_dict(cfg), int(cfg.seed), flat)
     return summary
+
+
+# keys that change how a run is executed, never what it computes
+_RUN_ONLY_KEYS = ("reuse", "add_policies", "workers")
+
+
+def provenance(cfg: DictConfig) -> dict[str, str]:
+    """What stored per-run results were computed from: the config and the split."""
+    computed = {k: v for k, v in as_dict(cfg).items() if k not in _RUN_ONLY_KEYS}
+    return {"config_hash": config_hash(computed), "split_id": split_id(cfg)}
+
+
+def load_stored(cfg: DictConfig, name: str) -> pd.DataFrame | None:
+    """Stored `results.parquet` of an experiment, refused if config or split changed since."""
+    stored = out_dir(name) / "results.parquet"
+    if not stored.exists():
+        return None
+    meta = stored.with_name("results.meta.json")
+    if not meta.exists():
+        # shortcut: results written before the sidecar existed are reused unchecked, with a
+        # warning; delete them (or rerun once) to get the check
+        print(f"warning: {stored} has no provenance sidecar; reusing it unchecked")
+        return pd.read_parquet(stored)
+    want, have = provenance(cfg), json.loads(meta.read_text())
+    if want != have:
+        raise ValueError(
+            f"refusing to reuse {stored}: stored {have} != current {want}; rerun without reuse"
+        )
+    return pd.read_parquet(stored)
+
+
+def replication_units(per_fold: pd.Series) -> tuple[np.ndarray, str]:
+    """Replication units of a test or CI over folds: the folds, as pre-registered
+    (docs/research/hypotheses.md). Folds of different repeats share test bearings, so they are
+    not independent and the fold-level p-values are optimistic; this is a stated limitation, not
+    corrected here. Repeat means are not a valid unit: every repeat tests every bearing once."""
+    return per_fold.to_numpy(dtype=np.float64), "folds"
 
 
 def _governor() -> str:
@@ -212,6 +252,7 @@ def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
     summary: dict[str, Any] = {
         "n_folds": len(folds),
         "n_reps_profiled": len(profiles),
+        "n_classes": len(np.unique(ws.label)),
         "f_raw_macro_f1": float(frame.loc[0, "macro_f1_mean"]),
         "majority_macro_f1": majority,
         "t_probe_ms": overheads.t_probe_ms,
@@ -256,23 +297,28 @@ def _calibrate_io(
     rep = int(np.argmin(model.profiles.size_bytes))
     pick = test[:: max(1, len(test) // n_windows)][:n_windows]
     extra: dict[float, float] = {}
-    with cloud_process(path) as port:
-        for rho in (0.0, 0.8):
-            edge_cfg = EdgeConfig(
-                deadline_ms=1e9, period_ms=window_period_ms(cfg), load=rho, shape_bps=bps,
-                initial_bps=bps,
-            )  # fmt: skip
-            recs = real_run(
-                bundle, port, edge_cfg, prices, energy, ws.x[pick], ws.window_id[pick],
-                Static(rep), LOAD_TENANTS[rho],
-            )  # fmt: skip
-            latencies = [x["latency_ms"] for x in recs if "latency_ms" in x]
-            if not latencies:
-                raise RuntimeError(f"runtime calibration at load {rho}: no window was delivered")
-            measured = np.median(latencies)
-            predicted = model.latency_ms(State(bps, 0.0, 0.0, rho, np.inf))[rep]
-            extra[rho] = float(measured - predicted)
-    shutil.rmtree(path)  # this bundle carries t_io = 0: never leave it for a later run to pick up
+    try:
+        with cloud_process(path) as port:
+            for rho in (0.0, 0.8):
+                edge_cfg = EdgeConfig(
+                    deadline_ms=1e9, period_ms=window_period_ms(cfg), load=rho, shape_bps=bps,
+                    initial_bps=bps,
+                )  # fmt: skip
+                recs = real_run(
+                    bundle, port, edge_cfg, prices, energy, ws.x[pick], ws.window_id[pick],
+                    Static(rep), LOAD_TENANTS[rho],
+                )  # fmt: skip
+                latencies = [x["latency_ms"] for x in recs if "latency_ms" in x]
+                if not latencies:
+                    raise RuntimeError(
+                        f"runtime calibration at load {rho}: no window was delivered"
+                    )
+                measured = np.median(latencies)
+                predicted = model.latency_ms(State(bps, 0.0, 0.0, rho, np.inf))[rep]
+                extra[rho] = float(measured - predicted)
+    finally:
+        # this bundle carries t_io = 0: never leave it for a later run to pick up, even on failure
+        shutil.rmtree(path, ignore_errors=True)
     t_io = max(extra[0.0], 0.05)  # a floor keeps the exponent defined when the model is spot on
     exponent = float(np.clip(np.log(max(extra[0.8], t_io) / t_io) / np.log(5.0), 0.0, 3.0))
     return t_io, exponent, extra
@@ -336,6 +382,7 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0915 - one recipe, read
             # constant scores: the safe set is the same for every window (per-rep thresholds ±1)
             lams["v0_static"] = np.where(ctx.static_safe[alpha], crc.ALL, crc.RAW_ONLY)
             prior, lams["v0_cascade"] = ctx.cascade[alpha]
+            lams["v0_group"] = ctx.group[alpha]  # exploratory, ADR 0020
             for variant, lam in lams.items():
                 scores = np.minimum(ghat, prior) if variant == "v0_cascade" else ghat
                 safe = crc.safe_set(scores, lam)
@@ -350,6 +397,8 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0915 - one recipe, read
                     {
                         "fold": fold.name, "alpha": alpha, "variant": variant,
                         "risk": float(loss.mean()), "risk_worst_policy": float(worst.mean()),
+                        # every test unit weighs the same, however many windows it has
+                        "risk_unit_mean": float(pd.Series(loss).groupby(blocks).mean().mean()),
                         "risk_greedy_policy": float(greedy.mean()),
                         "safe_set_size": float(safe.sum(axis=1).mean()),
                         "non_raw_available": float(safe[:, 1:].any(axis=1).mean()),
@@ -362,7 +411,9 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0915 - one recipe, read
                 key = (alpha, variant)
                 pooled.setdefault(key, ([], []))
                 pooled[key][0].append(loss)
-                pooled[key][1].append(np.char.add(fold.name + "/", blocks))
+                # the block is the bare unit (bearing): a bearing tested in several folds or
+                # repeats is one block, never several independent ones
+                pooled[key][1].append(blocks)
     frame = pd.DataFrame(rows)
     summary: dict[str, Any] = {"n_folds": int(frame["fold"].nunique())}
     for (alpha, variant), (losses, blocks_) in pooled.items():
@@ -370,8 +421,11 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0915 - one recipe, read
         sub = frame[(frame.alpha == alpha) & (frame.variant == variant)]
         tag = f"{variant}/a{alpha:g}"
         summary[f"{tag}/risk_mean"] = float(sub.risk.mean())
+        summary[f"{tag}/risk_unit_mean"] = float(sub.risk_unit_mean.mean())
         summary[f"{tag}/risk_ci_hi"] = hi
         summary[f"{tag}/risk_ci_lo"] = lo
+        # descriptive: CRC bounds the expected risk, so even under exact exchangeability about
+        # half of the folds may exceed α
         summary[f"{tag}/folds_within_alpha"] = float((sub.risk <= alpha).mean())
         summary[f"{tag}/bytes_vs_raw"] = float(sub.bytes_vs_raw.mean())
         summary[f"{tag}/non_raw_available"] = float(sub.non_raw_available.mean())
@@ -394,23 +448,30 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0915 - one recipe, read
 _CTX: dict[str, ev.FoldCtx] = {}
 
 
-def _cell_job(args: tuple) -> list[dict]:
-    fold, cell, cfg_dict, which, mission, edge_slowdown, only = args
-    key = f"{fold}|{edge_slowdown}|{cfg_dict['profile']['prices']['name']}|{cell.n_sensors}"
+def _cell_job(args: tuple) -> list[tuple[int, list[dict]]]:
+    """A chunk of cells of one fold and one sensor count: (job index, rows) per cell."""
+    fold, cells, cfg_dict, which, mission, edge_slowdown, only = args
+    n_sensors = cells[0][1].n_sensors
+    key = f"{fold}|{edge_slowdown}|{cfg_dict['profile']['prices']['name']}|{n_sensors}"
     if key not in _CTX:  # one context per worker process, fold and duty cycle
         from omegaconf import OmegaConf
 
+        _CTX.clear()  # chunks arrive grouped by (fold, sensors): an old context is not needed
         cfg = OmegaConf.create(cfg_dict)
-        profiles, overheads = load_profiles(edge_slowdown=edge_slowdown, n_sensors=cell.n_sensors)
+        profiles, overheads = load_profiles(edge_slowdown=edge_slowdown, n_sensors=n_sensors)
         _CTX[key] = ev.load_fold(
             Path(fold), profiles, overheads, prices_of(cfg), energy_of(cfg), tuple(cfg.alphas),
             cfg.delta, cfg_dict["_period_ms"], seed=int(cfg_dict["seed"]),
         )  # fmt: skip
-    rows = ev.run_cell(
-        _CTX[key], cell, mission, which, cfg_dict["scenario"]["n_windows"], cfg_dict["seed"],
-        only, late_cap_factor=float(cfg_dict["late_cap_factor"]),
-    )  # fmt: skip
-    return [{"fold": Path(fold).name, **asdict(cell), **r} for r in rows]
+    out = []
+    for i, cell in cells:
+        rows = ev.run_cell(
+            _CTX[key], cell, mission, which, cfg_dict["scenario"]["n_windows"], cfg_dict["seed"],
+            only, late_cap_factor=float(cfg_dict["late_cap_factor"]),
+            aci_p_audit=float(cfg_dict["p_audit"]),
+        )  # fmt: skip
+        out.append((i, [{"fold": Path(fold).name, **asdict(cell), **r} for r in rows]))
+    return out
 
 
 def grid_cells(cfg: DictConfig, alphas: tuple[float, ...] | None = None) -> list[ev.Cell]:
@@ -434,14 +495,24 @@ def run_grid(
 ) -> pd.DataFrame:
     cfg_dict = {**as_dict(cfg), "_period_ms": window_period_ms(cfg)}
     folds = fold_dirs(cfg)[:max_folds]
+    workers = int(cfg.workers)
+    # Chunks never mix folds or sensor counts, so a worker builds a fold context once per chunk
+    # instead of once per (fold, sensors) it ever meets; about eight chunks per worker keep the
+    # pool's tail short (a build is ~0.4 s, a cell ~2 s on PU). Rows are put back in fold × cell
+    # order, so the result does not depend on the chunking.
+    indexed = list(enumerate((f, c) for f in folds for c in cells))
+    groups: dict[tuple[Path, int], list[tuple[int, ev.Cell]]] = {}
+    for i, (f, c) in indexed:
+        groups.setdefault((f, c.n_sensors), []).append((i, c))
+    size = max(1, math.ceil(len(indexed) / (8 * workers)))
     jobs = [
-        (str(f), c, cfg_dict, which, cfg.profile.mission, edge_slowdown, only)
-        for f in folds
-        for c in cells
+        (str(f), group[k : k + size], cfg_dict, which, cfg.profile.mission, edge_slowdown, only)
+        for (f, _), group in groups.items()
+        for k in range(0, len(group), size)
     ]
-    with ProcessPoolExecutor(int(cfg.workers), mp_context=mp.get_context("spawn")) as pool:
-        rows = [r for part in pool.map(_cell_job, jobs, chunksize=4) for r in part]
-    return pd.DataFrame(rows)
+    with ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn")) as pool:
+        done = sorted(part for chunk in pool.map(_cell_job, jobs) for part in chunk)
+    return pd.DataFrame([r for _, rows in done for r in rows])
 
 
 def stored_or_run(
@@ -449,10 +520,9 @@ def stored_or_run(
 ) -> pd.DataFrame:
     """With `reuse=true`, re-analyse the stored per-cell results instead of simulating again;
     `add_policies=[…]` then simulates only those policies and replaces their stored rows."""
-    stored = out_dir(name) / "results.parquet"
-    if not (cfg.get("reuse") and stored.exists()):
+    frame = load_stored(cfg, name) if cfg.get("reuse") else None
+    if frame is None:
         return run(())
-    frame = pd.read_parquet(stored)
     add = tuple(cfg.get("add_policies") or ())
     if add:
         frame = pd.concat([frame[~frame.policy.isin(add)], run(add)], ignore_index=True)
@@ -472,9 +542,12 @@ def reduction(
 ) -> dict:
     """Relative reduction 1 - ours/theirs of the grid total, per fold, with a BCa CI over folds."""
     t = totals(frame, metric)
-    t = t[t[theirs] > 0]  # a fold where the reference has nothing to reduce says nothing
-    per_fold = 1.0 - t[ours] / t[theirs]
-    lo, hi = stats.bca_ci(per_fold.to_numpy(), rng)
+    # A fold where the reference total is 0 is never dropped: if ours is 0 too nothing changed
+    # (reduction 0); if ours > 0 we are infinitely worse (-inf), so the fold fails the threshold.
+    per_fold = (1.0 - t[ours] / t[theirs]).where(t[theirs] > 0, -np.inf)
+    per_fold = per_fold.where((t[theirs] > 0) | (t[ours] > 0), 0.0)
+    units, unit = replication_units(per_fold)
+    lo, hi = stats.bca_ci(units, rng) if np.isfinite(units).all() else (-np.inf, -np.inf)
     cells = frame.pivot_table(index=["fold", *CELL_KEYS], columns="policy", values=metric)
     ratio = (cells[ours] / cells[theirs]).replace([np.inf, -np.inf], np.nan).dropna()
     geo = float(np.exp(np.log(ratio[ratio > 0]).mean())) if (ratio > 0).any() else float("nan")
@@ -484,6 +557,8 @@ def reduction(
         "ci_hi": hi,
         "geo_ratio": geo,
         "per_fold": per_fold.tolist(),
+        "folds": [str(f) for f in per_fold.index],
+        "unit": unit,
     }
 
 
@@ -494,6 +569,29 @@ def dominant_rep(frame: pd.DataFrame, policy: str) -> pd.Series:
     out = sub.idxmax(axis=1).str.removeprefix("share/")
     out[sub.sum(axis=1) == 0] = "none"  # it sent nothing: not a vote for raw (column 0)
     return out
+
+
+AUTO_GATE_AUC = 0.55  # ADR 0022: below this mean ptrain AUC, Kai falls back to the static set
+
+
+def add_auto_policy(cfg: DictConfig, frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
+    """`kai_s1_auto` (ADR 0022, exploratory): per fold, the stored rows of `kai_s1_v0` if the
+    predictor's unit-grouped CV AUC on ptrain reaches AUTO_GATE_AUC, else those of
+    `kai_s1_v0_static`. Both were simulated on the same cells, so nothing is re-simulated."""
+    if not {"kai_s1_v0", "kai_s1_v0_static"} <= set(frame.policy):
+        return frame, {}
+    from kai.bench.calibrate import gate_auc
+
+    frame = frame[frame.policy != "kai_s1_auto"]
+    by_name = {f.name: f for f in fold_dirs(cfg)}
+    auc = {}
+    for fold in sorted(frame.fold.unique()):
+        t = Table.load(by_name[fold] / "table.npz")
+        m = t.of("ptrain")
+        auc[fold] = gate_auc(t.phi[m], t.d[m], t.bearing_id[m], t.rep_ids, int(cfg.seed))
+    pick = frame.fold.map(lambda f: "kai_s1_v0" if auc[f] >= AUTO_GATE_AUC else "kai_s1_v0_static")
+    auto = frame[frame.policy == pick].assign(policy="kai_s1_auto")
+    return pd.concat([frame, auto], ignore_index=True), auc
 
 
 def e3_main(cfg: DictConfig) -> dict:
@@ -512,6 +610,7 @@ def e3_main(cfg: DictConfig) -> dict:
             cfg, grid_cells(cfg), "main", max_folds=cfg.get("max_folds"), only=only
         ),
     )
+    frame, gate = add_auto_policy(cfg, frame)
     # share of all cells; cells where the oracle sent nothing count, but for no representation
     dom = dominant_rep(frame, "oracle").value_counts(normalize=True).drop("none", errors="ignore")
     h1_cost = reduction(frame, "oracle", "b4_best_single", rng)
@@ -522,7 +621,10 @@ def e3_main(cfg: DictConfig) -> dict:
         "n_folds": int(frame.fold.nunique()),
         "n_cells": len(frame.drop_duplicates(CELL_KEYS)),
         "H1/reps_dominant_in_10pct_of_cells": int((dom >= 0.10).sum()),
-        "H1/b4_extra_cost_vs_oracle": float(1.0 / (1.0 - h1_cost["mean"]) - 1.0),
+        # pre-registered: mean over folds of total_B4 / total_oracle - 1 (per_fold is 1 - o/b)
+        "H1/b4_extra_cost_vs_oracle": float(
+            np.mean(1.0 / (1.0 - np.array(h1_cost["per_fold"])) - 1.0)
+        ),
         "H3/cost_reduction_vs_b4": h3_cost["mean"],
         "H3/cost_reduction_vs_b4_ci_lo": h3_cost["ci_lo"],
         "H3/cost_reduction_vs_b4_ci_hi": h3_cost["ci_hi"],
@@ -561,9 +663,15 @@ def e3_main(cfg: DictConfig) -> dict:
         "H3_slo": h3_slo["per_fold"],
         "H1_cost": h1_cost["per_fold"],
     }
+    summary["per_fold_ids"] = h3_cost["folds"]  # fold names, in the order of every per_fold list
+    summary["test_unit"] = h3_cost["unit"]
     summary["price_preset"] = preset
     # exploratory variants (ADR 0008, 0011): the same comparison, not part of H3
-    for policy in ("kai_s1_v0_static", "kai_s1_cascade"):
+    if gate:
+        summary["x/kai_s1_auto/gate_auc"] = gate
+        # a NaN AUC goes to the static branch, so it is counted there too
+        summary["x/kai_s1_auto/n_static_folds"] = sum(not a >= AUTO_GATE_AUC for a in gate.values())
+    for policy in ("kai_s1_v0_static", "kai_s1_cascade", "kai_s1_auto"):
         if policy in set(frame.policy):
             summary[f"x/{policy}/cost_reduction_vs_b4"] = reduction(
                 frame, policy, "b4_best_single", rng
@@ -581,10 +689,15 @@ def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -
     rng = np.random.default_rng([int(cfg.seed), 5])
     cells = grid_cells(cfg, alphas=(0.05,))
     frame = stored_or_run(
-        cfg, name, lambda only: run_grid(cfg, cells, "ablation", edge_slowdown, only=only)
+        cfg,
+        name,
+        lambda only: run_grid(
+            cfg, cells, "ablation", edge_slowdown, max_folds=cfg.get("max_folds"), only=only
+        ),
     )
-    best_family = np.minimum(totals(frame)["compression_only"], totals(frame)["learned_only"])
-    h5 = 1.0 - totals(frame)["kai_s1_v0"] / best_family
+    total = totals(frame)
+    best_family = np.minimum(total["compression_only"], total["learned_only"])
+    h5 = 1.0 - total["kai_s1_v0"] / best_family
     high = frame[frame.load >= 0.8]
     changed = (dominant_rep(high, "kai_s1_v0") != dominant_rep(high, "no_encode_cost")).mean()
     slo = high.groupby("policy").slo_violation.mean()
@@ -596,12 +709,13 @@ def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -
         "H4/slo_ignoring_encode_cost": float(slo["no_encode_cost"]),
         "H5/cost_reduction_vs_best_family": float(h5.mean()),
     }
-    summary["H5/ci_lo"], summary["H5/ci_hi"] = stats.bca_ci(h5.to_numpy(), rng)
+    h5_units, summary["test_unit"] = replication_units(h5)
+    summary["H5/ci_lo"], summary["H5/ci_hi"] = stats.bca_ci(h5_units, rng)
     summary["H4_pass"] = bool(changed >= 0.15 and slo["no_encode_cost"] > slo["kai_s1_v0"])
     summary["H5_pass"] = bool(h5.mean() >= 0.10)
     for policy in sorted(frame.policy.unique()):
         r = reduction(frame, "kai_s1_v0", policy, rng) if policy != "kai_s1_v0" else None
-        summary[f"cost_total/{policy}"] = float(totals(frame)[policy].mean())
+        summary[f"cost_total/{policy}"] = float(total[policy].mean())
         summary[f"risk_certified/{policy}"] = float(
             frame[frame.policy == policy].risk_certified.mean()
         )
@@ -609,6 +723,7 @@ def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -
         if r is not None:
             summary[f"kai_cost_reduction_vs/{policy}"] = r["mean"]
     summary["per_fold"] = {"H5": h5.tolist()}
+    summary["per_fold_ids"] = [str(f) for f in h5.index]
     return finish(name, cfg, summary, frame)
 
 
@@ -633,7 +748,7 @@ def _bundle_for(cfg: DictConfig) -> tuple[Bundle, Path, WindowSet, Table, np.nda
     return load_bundle(path), path, ws, table, test
 
 
-WAVEFORM_FAMILY = ("r0_raw", "r1_lossless", "r2a_wavelet", "r2b_wavelet")
+WAVEFORM_FAMILY = WAVEFORM_REPS
 
 
 def _measure_latencies(
@@ -674,7 +789,11 @@ def _measure_latencies(
                         "load": rho,
                         "bandwidth_bps": float(bps),
                         "rep_id": rep.rep_id,
-                        "latency_ms_measured": float(np.median(lat)),
+                        # nothing delivered: NaN, counted in the summary (never a silent gap)
+                        "latency_ms_measured": float(np.median(lat)) if len(lat) else np.nan,
+                        "latency_ms_mad": (
+                            float(np.median(np.abs(lat - np.median(lat)))) if len(lat) else np.nan
+                        ),
                         "latency_ms_model": float(predicted[r]),
                     }
                 )
@@ -682,11 +801,15 @@ def _measure_latencies(
 
 
 def _boundaries(
-    frame: pd.DataFrame, model: CostModel, members: tuple[str, ...] | None
+    frame: pd.DataFrame,
+    model: CostModel,
+    members: tuple[str, ...] | None,
+    noise_aware: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Measured argmin changes along bandwidth, matched with the closed-form envelope.
 
-    `members` restricts both to a sub-menu. Returns the boundaries and the number predicted.
+    `members` restricts both to a sub-menu; `noise_aware` drops changes within the measured MAD
+    (ADR 0022). Returns the boundaries and the number predicted.
     """
     from kai.analysis import phase
 
@@ -701,7 +824,14 @@ def _boundaries(
         envelope = phase.latency_envelope(model, float(rho), allowed)
         theory = {(b.low, b.high): b.bps for b in envelope}
         n_theory += len(envelope)
-        for b in phase.crossings(table.index.to_numpy(), measured):
+        noise = None
+        if noise_aware:
+            noise = (
+                sub.pivot(index="bandwidth_bps", columns="rep_id", values="latency_ms_mad")
+                .reindex(columns=list(ids))
+                .to_numpy(copy=True)
+            )
+        for b in phase.crossings(table.index.to_numpy(), measured, noise):
             predicted_bps = theory.get((b.low, b.high))
             out.append(
                 {
@@ -730,9 +860,9 @@ def e4_phase(
 
     `reuse=True` re-analyses the stored measurements instead of measuring again.
     """
-    stored = out_dir("e4") / "results.parquet"
-    if reuse and stored.exists():
-        frame = pd.read_parquet(stored)
+    stored = load_stored(cfg, "e4") if reuse or cfg.get("reuse") else None
+    if stored is not None:
+        frame = stored
     else:
         grid = np.logspace(4.5, 7.5, grid_points)
         frame = _measure_latencies(cfg, n_windows, max_latency_ms, grid, loads)
@@ -749,6 +879,9 @@ def e4_phase(
         "n_boundaries_theory": n_theory,
         "max_rel_error": float(max((b["rel_error"] for b in matched), default=float("nan"))),
         "median_latency_model_error": float(rel.abs().median()),
+        # attempted (rate, load, representation) cells with no delivered window: they cannot
+        # place a crossing, so they are counted here rather than silently skipped
+        "n_cells_unmeasured": int(frame.latency_ms_measured.isna().sum()),
         "boundaries": boundaries,
         # exploratory, not part of H6: the same test inside the waveform-preserving family, where
         # the representations differ enough for a break-even to exist
@@ -763,6 +896,18 @@ def e4_phase(
     for rho, sub in frame.assign(rel=rel).groupby("load"):
         summary[f"latency_model_bias/load{rho:g}"] = float(sub.rel.mean())
     summary["H6_pass"] = bool(matched and summary["max_rel_error"] <= 0.20)
+    # exploratory (ADR 0022): the same test with crossings inside the measurement noise dropped
+    if "latency_ms_mad" in frame:
+        quiet, _ = _boundaries(frame, model, None, noise_aware=True)
+        quiet_matched = [b for b in quiet if b["bps_theory"]]
+        worst = max((b["rel_error"] for b in quiet_matched), default=float("nan"))
+        summary |= {
+            "H6_noise_aware/n_measured": len(quiet),
+            "H6_noise_aware/n_matched": len(quiet_matched),
+            "H6_noise_aware/max_rel_error": float(worst),
+            "H6_noise_aware/pass": bool(quiet_matched and worst <= 0.20),
+            "H6_noise_aware/boundaries": quiet,
+        }
     return finish("e4", cfg, summary, frame)
 
 
@@ -771,6 +916,14 @@ def _sim_vs_real(recs: list[dict[str, Any]], sim: Result, bps: float) -> dict[st
     real_rep = np.array([r["rep"] for r in recs])
     real_lat = np.array([r.get("latency_ms", np.nan) for r in recs])
     both = ~np.isnan(real_lat) & ~np.isnan(sim.latency_ms)
+    if not both.any():  # nothing delivered by both: NaN, which fails H7 (`_h7_summary`)
+        nan = float("nan")
+        return {
+            "bandwidth_bps": bps, "p50_real_ms": nan, "p50_sim_ms": nan, "p50_rel_gap": nan,
+            "p95_real_ms": nan, "p95_sim_ms": nan,
+            "selection_agreement": float(np.mean(real_rep == sim.rep)), "delivered_real": 0.0,
+            "bandwidth_estimate_real_bps": float(np.median([r["bandwidth_bps"] for r in recs])),
+        }  # fmt: skip
     p50_real, p50_sim = float(np.median(real_lat[both])), float(np.median(sim.latency_ms[both]))
     return {
         "bandwidth_bps": bps,
@@ -802,10 +955,13 @@ def _h7_summary(
 ) -> dict[str, Any]:
     """H7 verdict plus the artifact and selector that produced it."""
     frame = pd.DataFrame(rows)
+    # a rate where nothing was delivered has no p50 gap: count it and fail H7, never skip it
+    n_unmeasured = int(frame[["p50_rel_gap", "selection_agreement"]].isna().any(axis=1).sum())
     summary: dict[str, Any] = {
         "backend": backend,
         "max_p50_rel_gap": float(frame.p50_rel_gap.max()),
         "min_selection_agreement": float(frame.selection_agreement.min()),
+        "n_rows_unmeasured": n_unmeasured,
         "rows": rows,
     }
     if bundle is not None:
@@ -813,7 +969,9 @@ def _h7_summary(
     if selector is not None:
         summary["selector"] = selector
     summary["H7_pass"] = bool(
-        summary["max_p50_rel_gap"] <= 0.10 and summary["min_selection_agreement"] >= 0.85
+        n_unmeasured == 0
+        and summary["max_p50_rel_gap"] <= 0.10
+        and summary["min_selection_agreement"] >= 0.85
     )
     return summary
 
@@ -831,7 +989,16 @@ def _finish_h7(
     return finish(name, cfg, summary, pd.DataFrame(rows))
 
 
-def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
+E7_REAL_TIME_MS = 30 * 60 * 1000.0  # real-time budget per link rate
+
+
+def e7_windows(period_ms: float, n_max: int = 300, n_min: int = 60) -> int:
+    """Windows replayed per rate: 300, fewer when that would take more than 30 min of real time
+    (Sleep-EDF's 30 s epochs: 60 windows instead of 7.5 h)."""
+    return int(min(n_max, max(n_min, E7_REAL_TIME_MS // period_ms)))
+
+
+def e7_sim2real(cfg: DictConfig, n_windows: int | None = None) -> dict:
     """The same bundle, workload and scenario in the DES and over real sockets (H7)."""
     from kai.bench.realrun import cloud_process, real_run
     from kai.edge.runtime import EdgeConfig, build_certifier, build_selector
@@ -841,10 +1008,10 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
     bundle, path, ws, table, test = _bundle_for(cfg)
     prices, energy = prices_of(cfg), energy_of(cfg)
     model = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
-    pick = ev.spread(test, n_windows)
+    period = window_period_ms(cfg)
+    pick = ev.spread(test, n_windows or e7_windows(period))
     phi = table.phi[pick].astype(np.float64)
     work = Workload(bundle.predictor.predict(phi), phi, table.d[pick], table.payload_bytes[pick])
-    period = window_period_ms(cfg)
     selector = "s1_greedy_safe"
     rows = []
     with cloud_process(path) as port:
@@ -869,7 +1036,10 @@ def e7_sim2real(cfg: DictConfig, n_windows: int = 300) -> dict:
                 model,
             )
             rows.append(_sim_vs_real(recs, sim, bps))
-    backend = "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi)"
+    backend = (
+        "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi), "
+        f"{len(pick)} windows per rate"
+    )
     return _finish_h7("e7", cfg, backend, rows, bundle, selector=selector)
 
 
@@ -929,8 +1099,11 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
     return _finish_h7("e7d", cfg, backend, rows, bundle, selector=selector)
 
 
-def e8_overhead(cfg: DictConfig, n: int = 3000) -> dict:
-    """Selector overhead and scalability on this machine: decisions per second (single core)."""
+def e8_overhead(cfg: DictConfig, n: int = 3000, repeats: int = 30) -> dict:
+    """Selector overhead and scalability on this machine: decisions per second (single core).
+
+    The `n` decisions are timed in `repeats` blocks; reported: median and MAD over blocks.
+    """
     import time as _time
 
     from kai.select.policies import MpcSafe
@@ -951,17 +1124,22 @@ def e8_overhead(cfg: DictConfig, n: int = 3000) -> dict:
     for name, sel in selectors.items():
         for i in range(200):  # warm-up
             sel.select(Window(cert.safe_set(ghat[i]), ghat[i], phi[i]), state)
-        t0 = _time.perf_counter_ns()
-        for i in range(n):
-            sel.select(Window(cert.safe_set(ghat[i]), ghat[i], phi[i]), state)
-        us = (_time.perf_counter_ns() - t0) / n / 1e3
+        per_block = []
+        for block in np.array_split(np.arange(n), repeats):
+            t0 = _time.perf_counter_ns()
+            for i in block.tolist():
+                sel.select(Window(cert.safe_set(ghat[i]), ghat[i], phi[i]), state)
+            per_block.append((_time.perf_counter_ns() - t0) / len(block) / 1e3)
+        us = float(np.median(per_block))
         summary[f"{name}/us_per_decision"] = us
+        summary[f"{name}/us_per_decision_mad"] = float(np.median(np.abs(np.array(per_block) - us)))
         summary[f"{name}/decisions_per_s"] = 1e6 / us
     ov = bundle.overheads
     cheapest_enc = min(p.t_enc_ms for p in bundle.profiles[1:])
     summary["overhead_ms_probe_pred_select"] = ov.total_ms
     summary["overhead_vs_cheapest_encoder"] = ov.total_ms / cheapest_enc
-    summary["overhead_share_of_64ms_window"] = ov.total_ms / window_period_ms(cfg)
+    summary["window_period_ms"] = window_period_ms(cfg)
+    summary["overhead_share_of_window_period"] = ov.total_ms / summary["window_period_ms"]
     return finish("e8", cfg, summary)
 
 
@@ -973,8 +1151,15 @@ def e6_drift(cfg: DictConfig) -> dict:
     period = window_period_ms(cfg)
     alpha = 0.05
     rows = []
+    skipped: list[str] = []
     for level in ("L1", "L2"):
-        for fold in fold_dirs(cfg, level)[:5]:
+        try:
+            folds = fold_dirs(cfg, level)[:5]
+        except ValueError:  # no manifest of this level (HAR, speechcmd have no L2 split)
+            print(f"e6: no single {level} split manifest for {cfg.dataset.id}; skipping {level}")
+            skipped.append(level)
+            continue
+        for fold in folds:
             ctx = ev.load_fold(
                 fold,
                 profiles,
@@ -1019,6 +1204,7 @@ def e6_drift(cfg: DictConfig) -> dict:
             )  # fmt: skip
     frame = pd.DataFrame(rows)
     summary: dict[str, Any] = {"alpha": alpha, "p_audit": float(cfg.p_audit)}
+    summary["skipped_levels"] = skipped
     for level, sub in frame.groupby("level") if len(frame) else ():
         summary[f"{level}/n_folds"] = len(sub)
         for col in (
@@ -1064,15 +1250,21 @@ def e10_privacy(cfg: DictConfig) -> dict[str, Any]:
     from kai.tasks.pipeline import classical_outputs, latent_features
 
     ws = WindowSet.load(work() / cfg.dataset.windows)
-    cache = classical_outputs(ws, work() / "data/interim/cache")
     conditions = np.unique(ws.condition, return_inverse=True)[1]
     rows = []
+    caches: dict[tuple[bool, bool], Any] = {}  # fold-independent: computed once per menu
     for fold_dir in fold_dirs(cfg):
         table = Table.load(fold_dir / "table.npz")
+        extra, logmel = "r2c_wavelet" in table.rep_ids, "r10a_logmel" in table.rep_ids
+        if (extra, logmel) not in caches:
+            caches[extra, logmel] = classical_outputs(
+                ws, work() / "data/interim/cache", extra_wavelets=extra, logmel=logmel
+            )
+        cache = caches[extra, logmel]
         ptrain, test = np.flatnonzero(table.of("ptrain")), np.flatnonzero(table.of("test"))
         bearing = np.unique(ws.bearing_id[test], return_inverse=True)[1]
         # first half of each (bearing, condition) run: windows are stored in recording order
-        group = bearing * 16 + conditions[test]
+        group = np.unique(np.c_[bearing, conditions[test]], axis=0, return_inverse=True)[1].ravel()
         rank = np.zeros(len(test))
         for g in np.unique(group):
             rank[group == g] = np.linspace(0, 1, int((group == g).sum()), endpoint=False)

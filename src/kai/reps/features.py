@@ -39,7 +39,7 @@ def time_stats(xf: F64) -> F64:
     c2 = c * c
     var = float(c2.sum()) / n
     absx = np.abs(xf)
-    rms = float(np.sqrt(np.dot(xf, xf) / n))
+    rms = float(np.sqrt(np.square(xf).sum() / n))  # sums, not np.dot: no BLAS threads
     peak = float(absx.max())
     mean_abs = float(absx.sum()) / n
     sign = np.signbit(c)
@@ -48,8 +48,8 @@ def time_stats(xf: F64) -> F64:
             rms,
             peak,
             peak / (rms + _EPS),
-            float(np.dot(c2, c2)) / n / (var * var + _EPS),
-            float(np.dot(c2, c)) / n / (var**1.5 + _EPS),
+            float(np.square(c2).sum()) / n / (var * var + _EPS),
+            float((c2 * c).sum()) / n / (var**1.5 + _EPS),
             float(xf.max() - xf.min()),
             rms / (mean_abs + _EPS),
             peak / (mean_abs + _EPS),
@@ -69,8 +69,8 @@ def spectral_shape(power: F64) -> F64:
     """Spectral centroid (fraction of Nyquist) and normalised spectral entropy."""
     n = len(power)
     p = power / (power.sum() + _EPS)
-    centroid = float(np.dot(p, _ramp(n))) / (n - 1)
-    entropy = -float(np.dot(p, np.log(p + _EPS))) / np.log(n)
+    centroid = float((p * _ramp(n)).sum()) / (n - 1)
+    entropy = -float((p * np.log(p + _EPS)).sum()) / np.log(n)
     return np.array([centroid, entropy])
 
 

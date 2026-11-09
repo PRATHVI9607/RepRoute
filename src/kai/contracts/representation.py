@@ -26,6 +26,10 @@ REP_CODES: dict[str, int] = {
     "r7_vq": 8,
     "r8_jepa": 9,
     "r9_minirocket": 10,
+    "r2c_wavelet": 11,  # opt-in mid-size codecs (ADR 0016); appended, codes never renumbered
+    "r2d_wavelet": 12,
+    "r10a_logmel": 13,  # opt-in log-mel grids (ADR 0018)
+    "r10b_logmel": 14,
 }
 RAW_REP_ID = "r0_raw"
 

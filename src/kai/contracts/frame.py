@@ -57,28 +57,37 @@ def pack(frame: Frame) -> bytes:
     return body + _CRC.pack(zlib.crc32(body))
 
 
-def payload_len(header: bytes) -> int:
-    """Validate a 24-byte header and return the payload length that follows it."""
+def _header(header: bytes | memoryview) -> tuple[int, bytes, int, int, int]:
+    """Validate a 24-byte header; return (rep_code, contract_hash, window_id, ts_ns, len)."""
     if len(header) != HEADER_BYTES:
         raise FrameError(f"truncated header: {len(header)} bytes")
-    magic, ver, _, _, _, _, n = _HEADER.unpack(header)
+    magic, ver, rep_code, chash, window_id, ts_ns, n = _HEADER.unpack(header)
     if magic != MAGIC:
         raise FrameError(f"bad magic {magic!r}")
     if ver != PROTO_VER:
         raise FrameError(f"unsupported protocol version {ver}")
     if n > MAX_PAYLOAD_BYTES:
         raise FrameError(f"payload length {n} exceeds the {MAX_PAYLOAD_BYTES}-byte limit")
-    return int(n)
+    return rep_code, chash, window_id, ts_ns, int(n)
+
+
+def payload_len(header: bytes | memoryview) -> int:
+    """Validate a 24-byte header and return the payload length that follows it."""
+    return _header(header)[4]
+
+
+def unpack_parts(header: bytes | memoryview, rest: bytes | memoryview) -> Frame:
+    """Decode a frame read as header + (payload | crc32) without joining the two buffers."""
+    rep_code, chash, window_id, ts_ns, n = _header(header)
+    if len(rest) != n + _CRC.size:
+        raise FrameError(f"length mismatch: header says {n}, buffer has {len(rest) - _CRC.size}")
+    body = memoryview(rest)[:n]
+    (crc,) = _CRC.unpack_from(rest, n)
+    if zlib.crc32(body, zlib.crc32(header)) != crc:
+        raise FrameError("crc32 mismatch")
+    return Frame(rep_code, chash, window_id, ts_ns, bytes(body))
 
 
 def unpack(buf: bytes) -> Frame:
-    n = payload_len(buf[:HEADER_BYTES])
-    if len(buf) != OVERHEAD_BYTES + n:
-        raise FrameError(
-            f"length mismatch: header says {n}, buffer has {len(buf) - OVERHEAD_BYTES}"
-        )
-    body, (crc,) = buf[:-4], _CRC.unpack(buf[-4:])
-    if zlib.crc32(body) != crc:
-        raise FrameError("crc32 mismatch")
-    _, _, rep_code, chash, window_id, ts_ns, _ = _HEADER.unpack(buf[:HEADER_BYTES])
-    return Frame(rep_code, chash, window_id, ts_ns, buf[HEADER_BYTES:-4])
+    view = memoryview(buf)
+    return unpack_parts(view[:HEADER_BYTES], view[HEADER_BYTES:])

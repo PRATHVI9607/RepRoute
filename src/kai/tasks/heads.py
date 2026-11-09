@@ -15,14 +15,15 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from sklearn.model_selection import GroupKFold
 
-from kai.cloud.heads import N_CLASSES, Head, LinearHead, TreeHead
+from kai.cloud.heads import Head, LinearHead, TreeHead
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 def _linear(x: np.ndarray, y: np.ndarray, c: float, seed: int) -> LinearHead:
     mean, scale = x.mean(axis=0), np.maximum(x.std(axis=0), 1e-9)
-    weight, bias = np.zeros((N_CLASSES, x.shape[1])), np.full(N_CLASSES, -1e9)
+    k = int(y.max()) + 1  # rows up to the largest class seen; argmax returns the class index
+    weight, bias = np.zeros((k, x.shape[1])), np.full(k, -1e9)
     classes = np.unique(y)
     if len(classes) == 1:  # the reference model gives one answer on all training windows
         bias[classes[0]] = 0.0

@@ -45,7 +45,11 @@ class DriftMonitor:
         self.min_pvalue = 1.0
 
     def update(self, phi: F64) -> bool:
-        """Add one probe vector; re-test every `stride` windows once the buffer is full."""
+        """Add one probe vector; re-test every `stride` windows once the buffer is full.
+
+        Bonferroni covers the features of one test only: there is no correction across repeated
+        looks over time, so false alarms accumulate over a long stream.
+        """
         self._recent.append(np.asarray(phi, dtype=np.float64))
         self._seen += 1
         if len(self._recent) == self.window and self._seen % self.stride == 0:

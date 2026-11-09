@@ -206,18 +206,19 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 backlog += nbytes
                 enqueue(live, _Frame(i, nbytes, live=True))
                 if audit.should_audit():
+                    # ACI tracks the risk of certified decisions only; uncertified sends are
+                    # outside the certificate.
+                    if dec.flag == "certified":
+                        # raw agrees with itself: an audit that costs no bytes. Without it the
+                        # audited decisions are the non-raw ones only, and an adaptive threshold
+                        # that reaches raw-only never hears anything again (ADR 0007).
+                        certifier.feedback(dec.rep != 0 and bool(work.d[i, dec.rep]))
                     if dec.rep != 0:  # also ship raw so the cloud can compare
                         res.audited[i] = True
-                        certifier.feedback(bool(work.d[i, dec.rep]))
                         if observe is not None:
                             observe(dec.rep, bool(work.d[i, dec.rep]))
                         backlog += raw_wire
                         enqueue(live, _Frame(i, raw_wire, live=False))
-                    else:
-                        # raw agrees with itself: an audit that costs no bytes. Without it the
-                        # audited decisions are the non-raw ones only, and an adaptive threshold
-                        # that reaches raw-only never hears anything again (ADR 0007).
-                        certifier.feedback(False)
             elif dec.flag == "deferred":
                 while deferred and deferred_bytes + raw_wire > scenario.storage_bytes - backlog:
                     old = deferred.popleft()  # buffer full: drop the oldest cached window

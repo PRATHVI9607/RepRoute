@@ -37,8 +37,22 @@ def binom_cdf(k: int, n: int, p: float) -> float:
 def max_certified_losses(n: int, alpha: float, delta: float) -> int:
     """Largest c with P(Bin(n, α) ≤ c) ≤ δ; -1 if even zero losses cannot be certified."""
     c = -1
-    while c + 1 < n and binom_cdf(c + 1, n, alpha) <= delta:
-        c += 1
+    if not 0.0 < alpha < 1.0 or delta <= 0.0:  # degenerate CDFs are O(1) in `binom_cdf`
+        while c + 1 < n and binom_cdf(c + 1, n, alpha) <= delta:
+            c += 1
+        return c
+    # running log-CDF, one pmf term per step: O(c) instead of rebuilding the sum each step
+    lp, lq, log_delta = math.log(alpha), math.log1p(-alpha), math.log(delta)
+    log_cdf = -math.inf
+    while c + 1 < n:
+        i = c + 1
+        log_pmf = (
+            math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * lp + (n - i) * lq
+        )
+        log_cdf = float(np.logaddexp(log_cdf, log_pmf))
+        if log_cdf > log_delta:
+            break
+        c = i
     return c
 
 

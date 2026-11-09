@@ -46,8 +46,10 @@ def block_bootstrap_ci(
 def one_sided_p(values: np.ndarray, threshold: float, greater: bool = True) -> float:
     """One-sample t-test p-value for H1: mean > threshold (or < threshold)."""
     values = np.asarray(values, dtype=np.float64)
-    if len(values) < 2 or np.ptp(values) == 0:
-        return 1.0  # no spread, no test: never report evidence from a single unit
+    if len(values) < 2 or not np.isfinite(values).all() or np.ptp(values) == 0:
+        # no spread, no test: never report evidence from a single unit; a non-finite unit (a
+        # reduction against a reference of zero) is a failed unit, never evidence for H1
+        return 1.0
     alt = "greater" if greater else "less"
     return float(stats.ttest_1samp(values, threshold, alternative=alt).pvalue)
 

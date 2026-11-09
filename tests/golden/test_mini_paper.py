@@ -108,7 +108,7 @@ def test_e2_reports_every_variant_and_respects_ordering(results: dict) -> None:
 def test_e3_compares_every_policy_and_orders_them_sanely(results: dict) -> None:
     work = Path(results["_work"]["path"])
     frame = pd.read_parquet(work / "experiments" / "e3" / "results.parquet")
-    assert frame.policy.nunique() == 19
+    assert frame.policy.nunique() == 20  # 19 + kai_s1_v0_group (ADR 0020)
     assert frame.fold.nunique() == 2
     by = frame.groupby("policy")
     assert by.risk_sent.mean()["b1_raw"] == 0  # raw never disagrees with itself

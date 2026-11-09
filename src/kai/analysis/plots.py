@@ -18,6 +18,7 @@ import pandas as pd
 
 from kai.bench.config import work
 from kai.contracts.schemas import EnergyModel, Prices, RepProfile
+from kai.reps.registry import WAVEFORM_REPS
 from kai.select.cost import CostModel, Overheads, Profiles, State
 
 SURFACE, INK, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
@@ -127,7 +128,7 @@ def fig_phase() -> Path:
     """F3: which representation is fastest over bandwidth × edge load, theory versus measurement."""
     model = _local_model()
     ids = model.profiles.rep_ids
-    family = np.array([r in ("r0_raw", "r1_lossless", "r2a_wavelet", "r2b_wavelet") for r in ids])
+    family = np.array([r in WAVEFORM_REPS for r in ids])
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
     _phase_panel(axes[0], model, np.ones(len(ids), bool))
     _phase_panel(axes[1], model, family)

@@ -5,7 +5,8 @@ from __future__ import annotations
 import copy
 import io
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 import numpy as np
 import onnx
@@ -16,7 +17,16 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import GroupKFold
 from torch import nn
 
-from kai.tasks.models import VQVAE, AutoEncoder, Bottleneck, EnvNet, KinNet, RawNet, SpecNet
+from kai.tasks.models import (
+    VQVAE,
+    AutoEncoder,
+    Bottleneck,
+    EnvNet,
+    KinNet,
+    LogMelNet,
+    RawNet,
+    SpecNet,
+)
 
 ONNX_OPSET = 17
 Step = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -38,6 +48,19 @@ def to_tensor(x_int16: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(x_int16.astype(np.float32) / 32768.0).unsqueeze(1)
 
 
+@contextmanager
+def _deterministic() -> Iterator[None]:
+    """Deterministic kernels for one training run; the caller's global setting is restored."""
+    before = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    try:
+        yield
+    finally:
+        torch.use_deterministic_algorithms(before, warn_only=warn_only)
+
+
+@_deterministic()
 def _fit(
     model: nn.Module,
     step: Step,
@@ -51,7 +74,6 @@ def _fit(
 ) -> list[float]:
     """AdamW + one-cycle schedule; batch order comes from a seeded numpy Generator."""
     torch.manual_seed(seed)
-    torch.use_deterministic_algorithms(True, warn_only=True)
     rng = np.random.default_rng([seed, 1])
     model.to(device).train()
     xt, yt = to_tensor(x), torch.from_numpy(y.astype(np.int64))
@@ -81,17 +103,22 @@ def _spectral_loss(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return F.l1_loss(torch.log1p(fy), torch.log1p(fx))
 
 
-def _class_weights(y: np.ndarray, n_classes: int, device: torch.device) -> torch.Tensor:
-    counts = np.bincount(y, minlength=n_classes).astype(np.float32)
-    return torch.from_numpy(counts.sum() / (n_classes * np.maximum(counts, 1))).to(device)
+def n_classes(y: np.ndarray) -> int:
+    """Output width from the labels (3 bearing classes; up to 10 on the transfer datasets)."""
+    return int(y.max()) + 1
+
+
+def _class_weights(y: np.ndarray, k: int, device: torch.device) -> torch.Tensor:
+    counts = np.bincount(y, minlength=k).astype(np.float32)
+    return torch.from_numpy(counts.sum() / (k * np.maximum(counts, 1))).to(device)
 
 
 def train_rawnet(
     x: np.ndarray, y: np.ndarray, epochs: int, seed: int, device: torch.device
 ) -> RawNet:
     torch.manual_seed(seed)
-    model = RawNet()
-    w = _class_weights(y, 3, device)
+    model = RawNet(n_classes(y))
+    w = _class_weights(y, n_classes(y), device)
     _fit(model, lambda xb, yb: F.cross_entropy(model(xb), yb, weight=w), x, y, epochs, seed, device)
     return model
 
@@ -141,13 +168,15 @@ def _fit_front_linear(
 
 def train_specnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> SpecNet:
     """The spectral-shape reference model (ADR 0004)."""
-    return _fit_front_linear(SpecNet(x.shape[1]), x, y, groups, seed, (0.01, 0.1, 1.0))
+    return _fit_front_linear(
+        SpecNet(x.shape[1], n_classes(y)), x, y, groups, seed, (0.01, 0.1, 1.0)
+    )
 
 
 def train_kinnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) -> KinNet:
     """The fault-order reference model for long windows (ADR 0012); same penalty grid as EnvNet."""
     cs = tuple(1.0 / (2 * len(x) * penalty) for penalty in (0.1, 0.3, 1.0))
-    model = _fit_front_linear(KinNet(x.shape[1]), x, y, groups, seed, cs)
+    model = _fit_front_linear(KinNet(x.shape[1], n_classes(y)), x, y, groups, seed, cs)
     assert isinstance(model, KinNet)
     return model
 
@@ -162,7 +191,7 @@ def train_envnet(x: np.ndarray, y: np.ndarray, groups: np.ndarray, seed: int) ->
     # scores each penalty about 1.5x stronger than the final fit; the trained folds were made this
     # way, change it only together with retraining them (ADR 0010)
     cs = tuple(1.0 / (2 * len(x) * penalty) for penalty in (0.1, 0.3, 1.0))
-    model = _fit_front_linear(EnvNet(x.shape[1]), x, y, groups, seed, cs)
+    model = _fit_front_linear(EnvNet(x.shape[1], n_classes(y)), x, y, groups, seed, cs)
     assert isinstance(model, EnvNet)
     return model
 
@@ -171,8 +200,8 @@ def train_bottleneck(
     x: np.ndarray, y: np.ndarray, dim: int, epochs: int, seed: int, device: torch.device
 ) -> Bottleneck:
     torch.manual_seed(seed)
-    model = Bottleneck(x.shape[1], dim)
-    w = _class_weights(y, 3, device)
+    model = Bottleneck(x.shape[1], dim, n_classes(y))
+    w = _class_weights(y, n_classes(y), device)
     _fit(model, lambda xb, yb: F.cross_entropy(model(xb), yb, weight=w), x, y, epochs, seed, device)
     return model
 
@@ -190,7 +219,9 @@ def train_front_bottleneck(
     torch.manual_seed(seed)
     teacher = copy.deepcopy(teacher).to(device).eval()
     down = nn.Linear(teacher.front.n_features, dim)
-    head = nn.Sequential(nn.Linear(dim, 64), nn.ReLU(inplace=True), nn.Linear(64, 3))
+    head = nn.Sequential(
+        nn.Linear(dim, 64), nn.ReLU(inplace=True), nn.Linear(64, teacher.linear.out_features)
+    )
     student = nn.ModuleDict({"down": down, "head": head})
 
     def step(xb: torch.Tensor, _: torch.Tensor) -> torch.Tensor:
@@ -244,6 +275,48 @@ def train_vqvae(
         model.encoder.codebook.copy_(z[torch.from_numpy(pick)])
     _fit(model, step, x, np.zeros(len(x)), epochs, seed, device)
     return model
+
+
+@_deterministic()
+def train_logmel_head(
+    feats: np.ndarray,
+    target: np.ndarray,
+    n_mels: int,
+    n_frames: int,
+    seed: int,
+    device: torch.device,
+    epochs: int = 30,
+    batch: int = 128,
+    lr: float = 3e-3,
+) -> LogMelNet:
+    """Distil f_raw's decision into the R10 head (ADR 0018). Fixed recipe, nothing tuned on test.
+
+    Augmentation: each batch is shifted by up to two frames in time (a word does not start at a
+    fixed offset in the window).
+    """
+    torch.manual_seed(seed)
+    rng = np.random.default_rng([seed, 2])
+    model = LogMelNet(n_classes(target), n_mels, n_frames).to(device).train()
+    xt = torch.from_numpy(np.array(feats, np.float32))
+    yt = torch.from_numpy(target.astype(np.int64))
+    batch = min(batch, max(8, len(xt) // 8))  # tiny sets still get ≥ 8 steps per epoch
+    n_batches = max(1, len(xt) // batch)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, lr, total_steps=epochs * n_batches)
+    for _ in range(epochs):
+        order = rng.permutation(len(xt))
+        for b in range(n_batches):
+            idx = torch.from_numpy(order[b * batch : (b + 1) * batch])
+            xb = xt[idx].to(device)
+            grid = xb[:, 1:].reshape(-1, n_frames, n_mels)
+            grid = torch.roll(grid, int(rng.integers(-2, 3)), dims=1)
+            xb = torch.cat([xb[:, :1], grid.flatten(1)], 1)
+            loss = F.cross_entropy(model(xb[:, None, :]), yt[idx].to(device))
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            opt.step()
+            sched.step()
+    return model.eval().cpu()
 
 
 @torch.no_grad()

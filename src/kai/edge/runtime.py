@@ -7,6 +7,8 @@ numpy + onnxruntime only. Latency is measured on the edge clock: a window's end-
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -31,6 +33,22 @@ from kai.select.cost import CostModel, Profiles, State
 from kai.select.policies import CascadeSafe, GreedySafe, MpcSafe
 
 SELECTOR_NAMES = ("s1_greedy_safe", "s2_mpc_safe", "s1_cascade")
+SPIN_S = 2e-3  # the last stretch of a pacing wait yields instead of trusting a ~1 ms timer
+logger = logging.getLogger(__name__)
+
+
+def _now_s() -> float:
+    return time.perf_counter_ns() / 1e9
+
+
+async def _wait_until(t_s: float) -> None:
+    """Sleep until `t_s` (perf-counter seconds) without blocking the event loop.
+
+    asyncio timers fire up to ~1 ms late, so the bulk is a timer and the final `SPIN_S` is a
+    yielding spin: the reply reader keeps running and the wait stays sub-millisecond precise.
+    """
+    while (left_s := t_s - _now_s()) > 0:
+        await asyncio.sleep(left_s - SPIN_S if left_s > SPIN_S else 0)
 
 
 def _validate_selector(selector: str) -> None:
@@ -142,34 +160,38 @@ class Edge:
     async def _send(self, window_id: int, rep_code: int, chash: bytes, payload: bytes) -> float:
         """Write one frame, returning the time spent waiting for the token bucket.
 
-        The wait is a precise `time.sleep`, not an asyncio timer: the selector tick is ~1 ms on
+        The wait is `_wait_until`, not a plain asyncio timer: the selector tick is ~1 ms on
         Linux, which is larger than a small frame's serialization time and would add a constant
-        offset that the DES does not model. The edge has no other work to do while this frame
-        waits for the link, and the caller subtracts the wait from its CPU-time accounting.
+        offset that the DES does not model. It yields to the loop, so replies to earlier frames
+        are read (and timed) while this frame waits; the caller subtracts the wait from its
+        CPU-time accounting.
+        The frame is stamped when its serialization starts, not after the wait: goodput samples
+        and `_backlog_seen` measure from that moment (ADR 0013, addendum).
         """
         buf = fr.pack(fr.Frame(rep_code, chash, window_id, time.time_ns(), payload))
         pace_s = 0.0
+        t_start = _now_s()
         if self.cfg.shape_bps:  # token-bucket pacing: emulate a rate-limited uplink in-process
-            now = time.perf_counter()
-            start = max(now, self._pace_free_at)
-            self._pace_free_at = start + len(buf) * 8.0 / self.cfg.shape_bps
+            now = t_start
+            t_start = max(now, self._pace_free_at)
+            self._pace_free_at = t_start + len(buf) * 8.0 / self.cfg.shape_bps
             pace_s = max(0.0, self._pace_free_at - now)
             if pace_s:
-                time.sleep(pace_s)
+                await _wait_until(self._pace_free_at)
         self.writer.write(buf)
         self.backlog += len(buf)
-        self._in_flight.append((window_id, rep_code, time.perf_counter(), len(buf)))
+        self._in_flight.append((window_id, rep_code, t_start, len(buf)))
         return pace_s
 
     async def measure_rtt(self, samples: int = 5) -> float:
         rtts = []
-        for _ in range(samples):
-            t0 = time.perf_counter()
+        for _ in range(samples + 1):  # the first ping warms the connection and is discarded
+            t0 = time.perf_counter_ns()
             self.writer.write(fr.pack(fr.Frame(PING_CODE, b"\0\0\0\0", 0, 0, b"")))
             await self.writer.drain()
             await read_reply(self.reader)
-            rtts.append((time.perf_counter() - t0) * 1000.0)
-        self.rtt_ms = float(min(rtts))
+            rtts.append((time.perf_counter_ns() - t0) / 1e6)
+        self.rtt_ms = float(min(rtts[1:]))
         return self.rtt_ms
 
     async def _acks(self) -> None:
@@ -179,7 +201,7 @@ class Edge:
                 reply = await read_reply(self.reader)
             except (asyncio.IncompleteReadError, ConnectionResetError):
                 return
-            now = time.perf_counter()
+            now = _now_s()
             window_id, rep_code, t_send, nbytes = self._in_flight.popleft()
             self.backlog -= nbytes
             # Goodput sample. A frame sent into an idle link is acknowledged one round trip after
@@ -187,7 +209,8 @@ class Edge:
             # transmission time after its predecessor. Tiny frames finish in less than the timing
             # noise and would only measure the delay, so they do not produce a sample.
             if t_send >= self._last_ack:
-                elapsed = now - t_send - self.rtt_ms / 1000.0
+                # the ack also waited for the cloud's decode + head: not link time (ADR 0019)
+                elapsed = now - t_send - self.rtt_ms / 1000.0 - reply.cloud_ms / 1000.0
             else:
                 elapsed = now - self._last_ack
             if nbytes >= MIN_SAMPLE_BYTES and elapsed > 1e-4:
@@ -206,20 +229,22 @@ class Edge:
                 rec["cloud_ms"] = reply.cloud_ms
             if reply.disagreed >= 0:
                 rec["disagreed"] = reply.disagreed
-                self.certifier.feedback(bool(reply.disagreed))
+                # the certificate covers certified decisions only (kai.link.des)
+                if rec["flag"] == "certified":
+                    self.certifier.feedback(bool(reply.disagreed))
 
     # --- the loop ---------------------------------------------------------------------------
     def _link_recovered(self, raw_wire_bytes: float) -> bool:
         """Forward cached raw only if it fits between two arrivals, or as a periodic probe."""
         fits = raw_wire_bytes * 8000.0 / self.est.last_bps <= self.cfg.period_ms
-        return fits or time.perf_counter() - self._last_ack >= self.cfg.probe_s
+        return fits or _now_s() - self._last_ack >= self.cfg.probe_s
 
     def _backlog_seen(self) -> float:
         """Unacknowledged bytes minus the estimated progress of the frame currently on the wire."""
         if not self._in_flight:
             return 0.0
         _, _, t_send, nbytes = self._in_flight[0]
-        elapsed = time.perf_counter() - max(t_send, self._last_ack)
+        elapsed = _now_s() - max(t_send, self._last_ack)
         return self.backlog - min(nbytes, self.est.bps * max(elapsed, 0.0) / 8.0)
 
     def _load(self) -> float:
@@ -244,48 +269,56 @@ class Edge:
             )
 
         raw_wire = reps[0].size_model().q95_bytes + fr.OVERHEAD_BYTES
-        t_start = time.perf_counter()
-        for n, (x, wid) in enumerate(zip(windows, window_ids.tolist(), strict=True)):
-            await asyncio.sleep(
-                max(0.0, t_start + n * self.cfg.period_ms / 1000.0 - time.perf_counter())
-            )
-            if self.needs_bundle:
-                break
-            if self._deferred and self.backlog == 0 and self._link_recovered(raw_wire):
-                old_wid, old_x = self._deferred.popleft()
-                await send_rep(old_wid, 0, old_x, live=True)
-            t_arrive = time.perf_counter()
-            state = State(
-                bandwidth_bps=self.est.bps,
-                rtt_ms=self.rtt_ms,
-                backlog_bytes=self._backlog_seen(),
-                load=self._load(),
-                deadline_ms=self.cfg.deadline_ms,
-            )
-            dec, safe = self._decide(x, state)
-            rec = {
-                "window_id": wid, "t_arrive": t_arrive, "rep": dec.rep, "flag": dec.flag,
-                "rep_code": -1, "bytes": 0, "pace_ms": 0.0, "audited": False,
-                "bandwidth_bps": state.bandwidth_bps,
-                "backlog_bytes": state.backlog_bytes, "safe": safe.tolist(),
-                "probed": safe is not self._free,
-            }  # fmt: skip
-            self.records[wid] = rec
-            if dec.rep != NO_REP:
-                await send_rep(wid, dec.rep, x, live=True)  # select-then-encode: one encoder runs
-                if self.audit.should_audit():
-                    if dec.rep != 0:
-                        rec["audited"] = True
-                        await send_rep(wid, 0, x, live=False)
-                    else:
-                        self.certifier.feedback(False)  # raw agrees with itself (see kai.link.des)
-            elif dec.flag == "deferred":
-                if len(self._deferred) >= self.cfg.defer_buffer_windows:
-                    dropped_wid, _ = self._deferred.popleft()  # buffer full: drop the oldest
-                    self.records[dropped_wid]["flag"] = "dropped"
-                self._deferred.append((wid, x))
-            rec["edge_ms"] = (time.perf_counter() - t_arrive) * 1000.0 - rec["pace_ms"]
-        await self._drain_and_close(acks)
+        period_s = self.cfg.period_ms / 1000.0
+        t_start = _now_s()
+        try:
+            for n, (x, wid) in enumerate(zip(windows, window_ids.tolist(), strict=True)):
+                t_arrive = t_start + n * period_s  # scheduled arrival: the loop may wake late
+                await asyncio.sleep(max(0.0, t_arrive - _now_s()))
+                if self.needs_bundle:
+                    break
+                if self._deferred and self.backlog == 0 and self._link_recovered(raw_wire):
+                    old_wid, old_x = self._deferred.popleft()
+                    await send_rep(old_wid, 0, old_x, live=True)
+                t_work = _now_s()
+                state = State(
+                    bandwidth_bps=self.est.bps,
+                    rtt_ms=self.rtt_ms,
+                    backlog_bytes=self._backlog_seen(),
+                    load=self._load(),
+                    # time already spent since arrival is gone from the budget (kai.link.des)
+                    deadline_ms=self.cfg.deadline_ms - (t_work - t_arrive) * 1000.0,
+                )
+                dec, safe = self._decide(x, state)
+                decide_s = _now_s() - t_work
+                rec = {
+                    "window_id": wid, "t_arrive": t_arrive, "rep": dec.rep, "flag": dec.flag,
+                    "rep_code": -1, "bytes": 0, "pace_ms": 0.0, "audited": False,
+                    "bandwidth_bps": state.bandwidth_bps,
+                    "backlog_bytes": state.backlog_bytes, "safe": safe.tolist(),
+                    "probed": safe is not self._free,
+                }  # fmt: skip
+                self.records[wid] = rec
+                t_send = _now_s()  # bookkeeping above is not edge compute: time decide + send only
+                if dec.rep != NO_REP:
+                    # select-then-encode: one encoder runs
+                    await send_rep(wid, dec.rep, x, live=True)
+                    if self.audit.should_audit():
+                        if dec.rep != 0:
+                            rec["audited"] = True
+                            await send_rep(wid, 0, x, live=False)
+                        elif dec.flag == "certified":
+                            # raw agrees with itself (see kai.link.des)
+                            self.certifier.feedback(False)
+                elif dec.flag == "deferred":
+                    if len(self._deferred) >= self.cfg.defer_buffer_windows:
+                        dropped_wid, _ = self._deferred.popleft()  # buffer full: drop the oldest
+                        self.records[dropped_wid]["flag"] = "dropped"
+                    self._deferred.append((wid, x))
+                rec["edge_ms"] = (decide_s + _now_s() - t_send) * 1000.0 - rec["pace_ms"]
+            await self._drain(acks)
+        finally:
+            await self._close(acks)
         return [self.records[w] for w in window_ids.tolist() if w in self.records]
 
     def _decide(self, x: np.ndarray, state: State) -> tuple[Decision, np.ndarray]:
@@ -302,19 +335,26 @@ class Edge:
         safe = self.certifier.safe_set(ghat, phi)
         return self.selector.select(Window(safe, ghat, phi), state), safe
 
-    async def _drain_and_close(self, acks: asyncio.Task[None]) -> None:
-        """Wait for outstanding replies, then close; raise what the reply reader hit."""
-        deadline = time.perf_counter() + 5.0 + self.cfg.deadline_ms / 1000.0
-        while self._in_flight and time.perf_counter() < deadline and not self.needs_bundle:
+    async def _drain(self, acks: asyncio.Task[None]) -> None:
+        """Wait for outstanding replies; raise what the reply reader hit."""
+        deadline = _now_s() + 5.0 + self.cfg.deadline_ms / 1000.0
+        while self._in_flight and not acks.done() and not self.needs_bundle:
+            if _now_s() >= deadline:
+                break
             await asyncio.sleep(0.01)
-        try:
-            if acks.done():
-                acks.result()  # the reply reader died: raise its error instead of losing it
-        finally:
-            acks.cancel()
-            self.writer.close()
+        if acks.done():
+            acks.result()  # the reply reader died: raise its error instead of losing it
         if self.needs_bundle:
             raise NeedsBundleError("cloud replied NEEDS_BUNDLE: edge and cloud bundles differ")
+        if self._in_flight:
+            why = "the cloud closed the stream" if acks.done() else "the drain timed out"
+            logger.warning("%d frames left unacknowledged: %s", len(self._in_flight), why)
+
+    async def _close(self, acks: asyncio.Task[None]) -> None:
+        acks.cancel()
+        self.writer.close()
+        with contextlib.suppress(ConnectionError):
+            await self.writer.wait_closed()
 
 
 async def run_edge(

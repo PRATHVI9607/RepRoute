@@ -104,7 +104,9 @@ class Wavelet(BaseRep):
 
     def encode(self, x: WindowArray) -> bytes:
         c = np.concatenate(pywt.wavedec(x.astype(np.float64), "db4", "periodization", self.level))
-        budget = self.eps * float(np.linalg.norm(c))
+        # sums, not np.linalg.norm: BLAS threads above ~10k elements, and waking them on every
+        # bisection step cost 15-70x on 16 384-sample windows; an edge runs single-threaded
+        budget = self.eps * float(np.sqrt(np.square(c).sum()))
         # Rounding moves each coefficient by ≤ step/2, so this step is guaranteed within budget;
         # bisection (in float32, the wire type) then only ever accepts steps it has tested.
         lo = np.float32(2.0 * budget / np.sqrt(len(c)))
@@ -115,7 +117,7 @@ class Wavelet(BaseRep):
             mid = np.float32(0.5 * (float(lo) + float(hi)))
             if mid <= lo or mid >= hi:
                 break
-            if np.linalg.norm(c - np.rint(c / float(mid)) * float(mid)) <= budget:
+            if float(np.sqrt(np.square(c - np.rint(c / float(mid)) * float(mid)).sum())) <= budget:
                 lo = mid
             else:
                 hi = mid
@@ -145,6 +147,7 @@ class Wavelet(BaseRep):
 class Summary(BaseRep):
     """R4: ten time statistics + spectral centroid and entropy, float16 (24 B)."""
 
+    # not bumped for np.dot -> sums (ADR 0017): a last-bit float64 change, absorbed by float16
     version = "2"
 
     N_FEATURES = len(ft.TIME_STAT_NAMES) + 2
@@ -165,6 +168,7 @@ class Summary(BaseRep):
 class Spectral(BaseRep):
     """R3: envelope-spectrum and raw-spectrum log band energies + time statistics, float16."""
 
+    # not bumped for np.dot -> sums (ADR 0017): a last-bit float64 change, absorbed by float16
     version = "2"
 
     def __init__(self, window_n: int, env_bands: int = 32, spec_bands: int = 22) -> None:

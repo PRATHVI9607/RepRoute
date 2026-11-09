@@ -124,3 +124,20 @@ def test_pipeline_profile_times_each_stage_where_it_runs() -> None:
     assert overheads.t_probe_ms > 0
     assert overheads.t_pred_ms > 0
     assert overheads.total_ms < 20
+
+
+def test_decode_and_head_are_timed_inside_one_call_without_the_warm_up() -> None:
+    from kai.reps.registry import classical_menu
+
+    calls = []
+
+    class Zoo:
+        def decide_timed(self, rep_id: str, payload: bytes) -> tuple[int, float, float]:
+            calls.append(rep_id)
+            return (0, 99.0, 99.0) if len(calls) <= 5 else (0, 0.25, 0.5)  # 5 warm-up calls
+
+    windows = np.random.default_rng(0).integers(-2000, 2000, size=(4, 1024)).astype(np.int16)
+    rep = classical_menu(1024)[0]
+    profiles, _ = pf.profile_menu([rep], Zoo(), windows, repeats=6, with_load=False)  # type: ignore[arg-type]
+    assert len(calls) == 5 + 6
+    assert (profiles[0].t_dec_ms, profiles[0].t_head_ms) == (0.25, 0.5)

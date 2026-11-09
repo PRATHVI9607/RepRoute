@@ -94,13 +94,19 @@ def argmin_map(
     return out
 
 
-def crossings(bandwidths_bps: np.ndarray, latency_ms: np.ndarray) -> list[Boundary]:
+def crossings(
+    bandwidths_bps: np.ndarray, latency_ms: np.ndarray, noise_ms: np.ndarray | None = None
+) -> list[Boundary]:
     """Empirical boundaries from measured latency curves `[n_bandwidths, K]` (nan = not measured).
 
     A boundary is placed where the argmin changes, by log-linear interpolation of the two curves.
+    With `noise_ms` (per-cell MAD, same shape), a change counts only if the gap exceeds
+    2·√(MAD_lo² + MAD_hi²) at both grid points; otherwise the two are tied within noise (ADR 0022).
     """
     seen = ~np.isnan(latency_ms).all(axis=1)  # bandwidths where nothing was measured are skipped
     bandwidths_bps, latency_ms = bandwidths_bps[seen], latency_ms[seen]
+    if noise_ms is not None:
+        noise_ms = noise_ms[seen]
     best = np.nanargmin(latency_ms, axis=1) if len(latency_ms) else np.empty(0, int)
     out = []
     for g in range(len(bandwidths_bps) - 1):
@@ -109,6 +115,10 @@ def crossings(bandwidths_bps: np.ndarray, latency_ms: np.ndarray) -> list[Bounda
             continue
         gap0 = latency_ms[g, lo] - latency_ms[g, hi]  # ≤ 0: lo wins at g
         gap1 = latency_ms[g + 1, lo] - latency_ms[g + 1, hi]  # ≥ 0: hi wins at g+1
+        if noise_ms is not None:
+            tol = [2.0 * np.hypot(noise_ms[i, lo], noise_ms[i, hi]) for i in (g, g + 1)]
+            if not (abs(gap0) > tol[0] and abs(gap1) > tol[1]):  # NaN noise compares False: tie
+                continue
         frac = -gap0 / (gap1 - gap0) if gap1 != gap0 else 0.5
         logb = np.log(bandwidths_bps[g]) + frac * np.log(bandwidths_bps[g + 1] / bandwidths_bps[g])
         out.append(Boundary(low=lo, high=hi, bps=float(np.exp(logb))))

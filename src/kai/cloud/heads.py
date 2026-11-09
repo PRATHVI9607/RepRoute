@@ -13,8 +13,6 @@ import onnxruntime as ort
 from kai.reps.base import BaseRep
 from kai.reps.registry import load_menu
 
-N_CLASSES = 3
-
 
 @dataclass(frozen=True)
 class LinearHead:
@@ -43,12 +41,36 @@ class TreeHead:
         return out
 
 
-Head = LinearHead | TreeHead
+class OnnxHead:
+    """A CNN head exported to ONNX (R10 log-mel, ADR 0018): input [B, 1, F], argmax of logits."""
+
+    def __init__(self, onnx_bytes: bytes) -> None:
+        self.onnx_bytes = onnx_bytes
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        self._session = ort.InferenceSession(onnx_bytes, opts, providers=["CPUExecutionProvider"])
+
+    def predict(self, x: np.ndarray, batch: int = 2048) -> np.ndarray:
+        x = np.atleast_2d(np.asarray(x, np.float32))
+        logits = [
+            self._session.run(None, {"x": x[i : i + batch, None, :]})[0]
+            for i in range(0, len(x), batch)
+        ]
+        out: np.ndarray = np.concatenate(logits).argmax(axis=1)
+        return out
+
+
+Head = LinearHead | TreeHead | OnnxHead
 
 
 def save_head(head: Head, stem: Path) -> None:
-    """`<stem>.npz` for a linear head; `<stem>.txt` + `<stem>.classes.npy` for a tree head."""
-    if isinstance(head, LinearHead):
+    """`<stem>.npz` linear, `<stem>.onnx` CNN, `<stem>.txt` + `<stem>.classes.npy` tree."""
+    # a rerun may change the head family: a stale file of another family would be loaded first
+    for suffix in (".npz", ".onnx", ".txt", ".classes.npy"):
+        stem.with_suffix(suffix).unlink(missing_ok=True)
+    if isinstance(head, OnnxHead):
+        stem.with_suffix(".onnx").write_bytes(head.onnx_bytes)
+    elif isinstance(head, LinearHead):
         np.savez(
             stem.with_suffix(".npz"),
             mean=head.mean,
@@ -65,6 +87,8 @@ def load_head(stem: Path) -> Head:
     if stem.with_suffix(".npz").exists():
         with np.load(stem.with_suffix(".npz")) as z:
             return LinearHead(z["mean"], z["scale"], z["weight"], z["bias"])
+    if stem.with_suffix(".onnx").exists():
+        return OnnxHead(stem.with_suffix(".onnx").read_bytes())
     booster = lgb.Booster(model_file=str(stem.with_suffix(".txt")))
     return TreeHead(booster, np.load(stem.with_suffix(".classes.npy")))
 
@@ -85,11 +109,15 @@ class HeadZoo:
             if rep.head_input == "features"
         }
         self.by_hash = {bytes.fromhex(r.contract_hash()): r for r in self.reps.values()}
+        if len(self.by_hash) != len(self.reps):  # the wire carries a short hash: never guess
+            raise ValueError("two representations share a contract hash")
 
     def head(self, rep_id: str, decoded: np.ndarray) -> int:
         """Decision for one decoded payload (the output of `decode_for_head`)."""
         if self.reps[rep_id].head_input == "waveform":
-            logits = self._f_raw.run(None, {"x": decoded[None, None, :].astype(np.float32)})[0]
+            logits = self._f_raw.run(
+                None, {"x": decoded[None, None, :].astype(np.float32, copy=False)}
+            )[0]
             return int(logits[0].argmax())
         return int(self._heads[rep_id].predict(decoded)[0])
 

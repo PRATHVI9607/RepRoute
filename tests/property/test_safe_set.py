@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
@@ -68,6 +69,31 @@ def test_crc_threshold_is_the_largest_valid_one(
             assert bound(float(candidate)) > alpha  # any larger loss point breaks the bound
 
 
+@given(tables(), st.data(), st.sampled_from([0.05, 0.1, 0.3, 0.6]))
+def test_group_crc_threshold_is_the_largest_valid_one(
+    t: tuple[np.ndarray, np.ndarray], data: st.DataObject, alpha: float
+) -> None:
+    ghat, d = t
+    m = crc.first_loss_threshold(ghat, d)
+    groups = np.array(data.draw(st.lists(st.integers(0, 5), min_size=len(m), max_size=len(m))))
+    lam = crc.group_crc_threshold(m, groups, alpha)
+    ids = np.unique(groups)
+
+    def bound(x: float) -> float:
+        loss = crc.safe_set_loss(ghat, d, x)
+        return (sum(loss[groups == g].mean() for g in ids) + 1) / (len(ids) + 1)
+
+    if lam == crc.RAW_ONLY:
+        assert 1 / (len(ids) + 1) > alpha
+    else:
+        assert bound(lam) <= alpha + 1e-9
+    for candidate in np.unique(m[np.isfinite(m)]):
+        if candidate > lam:
+            assert bound(float(candidate)) > alpha
+    # one window per group is window-level CRC
+    assert crc.group_crc_threshold(m, np.arange(len(m)), alpha) == crc.crc_threshold(m, alpha)
+
+
 @given(tables(), st.data())
 def test_policy_threshold_matches_brute_force(
     t: tuple[np.ndarray, np.ndarray], data: st.DataObject
@@ -115,6 +141,32 @@ def test_binom_cdf_edges_and_certified_counts() -> None:
     assert ltt.max_certified_losses(20, 0.05, 0.1) == -1  # 0.95**20 > 0.1: nothing certifiable
     assert ltt.ltt_threshold(np.array([]), 0.1, 0.1) == crc.RAW_ONLY
     assert ltt.ltt_threshold(np.full(500, np.inf), 0.1, 0.1) == crc.ALL
+
+
+@given(st.integers(1, 400), st.sampled_from([0.01, 0.05, 0.1, 0.3]), st.floats(0.001, 0.5))
+def test_incremental_certified_count_matches_the_cdf_loop(
+    n: int, alpha: float, delta: float
+) -> None:
+    c = -1
+    while c + 1 < n and ltt.binom_cdf(c + 1, n, alpha) <= delta:
+        c += 1
+    got = ltt.max_certified_losses(n, alpha, delta)
+    # equal up to float ties at the δ boundary
+    assert got == c or abs(ltt.binom_cdf(max(got, c), n, alpha) - delta) < 1e-9
+
+
+def test_nan_scores_fail_loudly_and_thresholds_are_never_nan() -> None:
+    ghat = np.array([[0.0, 0.2, np.nan], [0.0, 0.3, 0.4]])
+    d = np.array([[False, False, True], [False, True, False]])
+    with pytest.raises(ValueError, match="NaN"):
+        crc.first_loss_threshold(ghat, d)
+    m = np.r_[np.full(30, 0.5), np.nan]
+    with pytest.raises(ValueError, match="NaN"):
+        crc.crc_threshold(m, 0.5)
+    with pytest.raises(ValueError, match="NaN"):
+        crc.group_crc_threshold(m, np.arange(len(m)), 0.5)
+    with pytest.raises(ValueError, match="NaN"):
+        ltt.ltt_threshold(m, 0.5, 0.1)
 
 
 def test_policy_threshold_breaks_cost_ties_like_the_selector() -> None:

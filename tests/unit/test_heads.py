@@ -32,6 +32,35 @@ def test_both_families_learn_and_round_trip(rng: np.random.Generator, tmp_path) 
             f.unlink()
 
 
+def test_a_rerun_that_changes_the_head_family_replaces_the_old_head(
+    rng: np.random.Generator, tmp_path
+) -> None:
+    x, y, _ = blobs(rng)
+    save_head(_linear(x, y, 1.0, 0), tmp_path / "h")
+    save_head(_tree(x, y, {"n_estimators": 10}, 0, 2), tmp_path / "h")
+    assert isinstance(load_head(tmp_path / "h"), TreeHead)  # not the stale `.npz`
+    save_head(_linear(x, y, 1.0, 0), tmp_path / "h")
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["h.npz"]
+
+
+def test_zoo_refuses_two_representations_with_one_wire_hash(monkeypatch, tmp_path) -> None:
+    from torch import nn
+
+    from kai.cloud import heads
+    from kai.reps.base import BaseRep
+    from kai.reps.classical import Lossless, Raw
+
+    n = 64
+    (tmp_path / "f_raw.onnx").write_bytes(
+        tr.export_onnx(nn.Sequential(nn.Flatten(), nn.Linear(n, 3)), n)
+    )
+    monkeypatch.setattr(heads, "load_menu", lambda _: [Raw(n), Lossless(n)])
+    assert len(heads.HeadZoo(tmp_path).by_hash) == 2
+    monkeypatch.setattr(BaseRep, "contract_hash", lambda _: "00000000")
+    with pytest.raises(ValueError, match="contract hash"):
+        heads.HeadZoo(tmp_path)
+
+
 def test_search_gives_every_representation_the_same_budget(rng: np.random.Generator) -> None:
     x, y, groups = blobs(rng)
     head = tune_and_fit(x, y, groups, n_trials=4, seed=0, n_jobs=2)
