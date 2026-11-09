@@ -1,39 +1,64 @@
 {
- "n_boundaries_measured": 8,
+ "n_boundaries_measured": 10,
  "n_boundaries_matched": 1,
- "n_boundaries_theory": 4,
- "max_rel_error": 0.04731219096842635,
- "median_latency_model_error": 0.07248051428707558,
+ "n_boundaries_theory": 2,
+ "max_rel_error": 1.2811645971880647,
+ "median_latency_model_error": 0.07467461206093261,
+ "n_cells_unmeasured": 0,
  "boundaries": [
   {
    "load": 0.0,
    "low": "r6_bottleneck",
-   "high": "r4_summary",
-   "bps_measured": 161465.6682397481,
-   "bps_theory": 169484.34388373376,
-   "rel_error": 0.04731219096842635
-  },
-  {
-   "load": 0.8,
-   "low": "r7_vq",
-   "high": "r4_summary",
-   "bps_measured": 73227.69888907328,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r4_summary",
    "high": "r7_vq",
-   "bps_measured": 137155.76842944484,
+   "bps_measured": 32495.307257008568,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 642948.0457392579,
+   "bps_theory": 281850.79083368386,
+   "rel_error": 1.2811645971880647
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 1539427.9293035609,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r5_ae",
+   "high": "r4_summary",
+   "bps_measured": 1979338.7137294768,
    "bps_theory": null,
    "rel_error": NaN
   },
   {
    "load": 0.8,
    "low": "r7_vq",
+   "high": "r5_ae",
+   "bps_measured": 110154.44440232862,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r5_ae",
+   "high": "r3_spectral",
+   "bps_measured": 290017.4227532348,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r3_spectral",
    "high": "r4_summary",
-   "bps_measured": 263726.45216488175,
+   "bps_measured": 590478.117919263,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -41,7 +66,7 @@
    "load": 0.8,
    "low": "r4_summary",
    "high": "r5_ae",
-   "bps_measured": 2790793.553175551,
+   "bps_measured": 7910519.533807216,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -49,7 +74,7 @@
    "load": 0.8,
    "low": "r5_ae",
    "high": "r4_summary",
-   "bps_measured": 4496896.668161306,
+   "bps_measured": 14797341.500025555,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -57,42 +82,47 @@
    "load": 0.8,
    "low": "r4_summary",
    "high": "r5_ae",
-   "bps_measured": 10846556.938316388,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r5_ae",
-   "high": "r7_vq",
-   "bps_measured": 23623433.87508595,
+   "bps_measured": 22560006.471520133,
    "bps_theory": null,
    "rel_error": NaN
   }
  ],
  "family/n_theory": 4,
- "family/n_measured": 2,
- "family/n_matched": 2,
- "family/max_rel_error": 0.6560714673466376,
+ "family/n_measured": 3,
+ "family/n_matched": 3,
+ "family/max_rel_error": 0.7686683159652449,
  "family_boundaries": [
+  {
+   "load": 0.0,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 29929139.572744153,
+   "bps_theory": 34804354.67786855,
+   "rel_error": 0.14007485989172666
+  },
   {
    "load": 0.8,
    "low": "r2b_wavelet",
    "high": "r1_lossless",
-   "bps_measured": 11200698.012149982,
-   "bps_theory": 32566934.54811121,
-   "rel_error": 0.6560714673466376
+   "bps_measured": 8051349.9793742355,
+   "bps_theory": 34804354.67786854,
+   "rel_error": 0.7686683159652449
   },
   {
    "load": 0.8,
    "low": "r1_lossless",
    "high": "r0_raw",
-   "bps_measured": 30340846.168827575,
-   "bps_theory": 51662988.96059056,
-   "rel_error": 0.4127160123861183
+   "bps_measured": 20379222.129651442,
+   "bps_theory": 76204616.63380167,
+   "rel_error": 0.7325723423348088
   }
  ],
- "latency_model_bias/load0": -0.0682464460024605,
- "latency_model_bias/load0.8": -0.10063138178499582,
- "H6_pass": true
+ "latency_model_bias/load0": -0.0002451600362908815,
+ "latency_model_bias/load0.8": -0.050168605167136275,
+ "H6_pass": false,
+ "H6_noise_aware/n_measured": 0,
+ "H6_noise_aware/n_matched": 0,
+ "H6_noise_aware/max_rel_error": NaN,
+ "H6_noise_aware/pass": false,
+ "H6_noise_aware/boundaries": []
 }

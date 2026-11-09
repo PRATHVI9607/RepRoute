@@ -1,0 +1,56 @@
+{
+ "n_boundaries_measured": 3,
+ "n_boundaries_matched": 1,
+ "n_boundaries_theory": 2,
+ "max_rel_error": 0.006106566750904466,
+ "median_latency_model_error": 0.232305372571125,
+ "n_cells_unmeasured": 0,
+ "boundaries": [
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r4_summary",
+   "bps_measured": 174548.37249707276,
+   "bps_theory": 175620.81271275127,
+   "rel_error": 0.006106566750904466
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 1493277.4862067676,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r5_ae",
+   "high": "r4_summary",
+   "bps_measured": 2201217.813996621,
+   "bps_theory": null,
+   "rel_error": NaN
+  }
+ ],
+ "family/n_theory": 4,
+ "family/n_measured": 1,
+ "family/n_matched": 1,
+ "family/max_rel_error": 0.3623542567219787,
+ "family_boundaries": [
+  {
+   "load": 0.8,
+   "low": "r2b_wavelet",
+   "high": "r1_lossless",
+   "bps_measured": 12798451.475801773,
+   "bps_theory": 20071413.650481302,
+   "rel_error": 0.3623542567219787
+  }
+ ],
+ "latency_model_bias/load0": -0.2533426428850762,
+ "latency_model_bias/load0.8": -0.15202899524073032,
+ "H6_pass": true,
+ "H6_noise_aware/n_measured": 0,
+ "H6_noise_aware/n_matched": 0,
+ "H6_noise_aware/max_rel_error": NaN,
+ "H6_noise_aware/pass": false,
+ "H6_noise_aware/boundaries": []
+}

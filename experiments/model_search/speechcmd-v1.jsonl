@@ -1,0 +1,3 @@
+{"dataset": "speechcmd-v1", "candidate": "spec (SpecNet, ADR 0004)", "inner_folds": 3, "train_groups": 997, "inner_f1_mean": 0.466579909310892, "inner_f1_per_fold": [0.45226974837483225, 0.4629889881916117, 0.48448099136623207], "seconds": 61.0}
+{"dataset": "speechcmd-v1", "candidate": "env (EnvNet, ADR 0006)", "inner_folds": 3, "train_groups": 997, "inner_f1_mean": 0.36073383270864684, "inner_f1_per_fold": [0.3509449283499278, 0.35639396903415305, 0.3748626007418595], "seconds": 55.9}
+{"dataset": "speechcmd-v1", "candidate": "wave (RawNet CNN, 30 epochs)", "inner_folds": 3, "train_groups": 997, "inner_f1_mean": 0.8916283467244229, "inner_f1_per_fold": [0.8754450534794497, 0.8916384729812592, 0.9078015137125602], "seconds": 2837.8}

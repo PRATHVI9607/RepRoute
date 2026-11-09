@@ -1,0 +1,45 @@
+{
+ "dataset": "har",
+ "windows": 2509,
+ "units": 30,
+ "classes": 6,
+ "window_len": 256,
+ "f_raw_macro_f1": 0.578957129087489,
+ "chance": 0.16666666666666666,
+ "disagreement": {
+  "R2_wavelet": 0.7554054054054054,
+  "R3_spectral": 0.3472972972972973,
+  "R4_summary": 0.49864864864864866,
+  "R5_latent": 0.731081081081081,
+  "R7_quantised": 0.7405405405405405,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 512,
+  "R2_wavelet": 168,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.372972972972973,
+  "R4_summary": 0.3864864864864865,
+  "R5_latent": 0.013513513513513514,
+  "R3_spectral": 0.11981981981981982,
+  "R2_wavelet": 0.01981981981981982,
+  "R0_raw": 0.08738738738738738
+ },
+ "hardness_auc": 0.5631964168669434,
+ "units_curve": {
+  "10": 0.7675675675675675,
+  "21": 0.731081081081081
+ },
+ "medium_reps": [],
+ "used_reps": [
+  "R7_quantised",
+  "R4_summary",
+  "R3_spectral"
+ ],
+ "verdict": "FAIL"
+}

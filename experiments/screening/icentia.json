@@ -1,0 +1,49 @@
+{
+ "dataset": "icentia",
+ "windows": 8998,
+ "units": 980,
+ "classes": 3,
+ "window_len": 4096,
+ "f_raw_macro_f1": 0.5051066759040914,
+ "chance": 0.3333333333333333,
+ "disagreement": {
+  "R2_wavelet": 0.5251665433012583,
+  "R3_spectral": 0.23353071798667657,
+  "R4_summary": 0.21354552183567732,
+  "R5_latent": 0.23316062176165808,
+  "R7_quantised": 0.23316062176165808,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 8192,
+  "R2_wavelet": 2472,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.8692326671601283,
+  "R4_summary": 0.07920059215396003,
+  "R3_spectral": 0.0004934616333580064,
+  "R2_wavelet": 0.01159634838391315,
+  "R0_raw": 0.03947693066864051
+ },
+ "hardness_auc": 0.6674777220829853,
+ "units_curve": {
+  "10": 0.28423390081421174,
+  "50": 0.25277572168763873,
+  "200": 0.23464100666173204,
+  "686": 0.23316062176165808
+ },
+ "medium_reps": [
+  "R3_spectral",
+  "R4_summary",
+  "R5_latent",
+  "R7_quantised"
+ ],
+ "used_reps": [
+  "R7_quantised"
+ ],
+ "verdict": "FAIL"
+}

@@ -1,0 +1,46 @@
+{
+ "dataset": "hust",
+ "windows": 5625,
+ "units": 15,
+ "classes": 3,
+ "window_len": 4096,
+ "f_raw_macro_f1": 0.4328397673188789,
+ "chance": 0.3333333333333333,
+ "disagreement": {
+  "R2_wavelet": 0.64,
+  "R3_spectral": 0.09599999999999997,
+  "R4_summary": 0.39039999999999997,
+  "R5_latent": 0.6714666666666667,
+  "R7_quantised": 0.6544,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 8192,
+  "R2_wavelet": 2472,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.4567111111111111,
+  "R4_summary": 0.37706666666666666,
+  "R5_latent": 0.0112,
+  "R3_spectral": 0.13262222222222222,
+  "R2_wavelet": 0.006044444444444444,
+  "R0_raw": 0.016355555555555557
+ },
+ "hardness_auc": 0.4678737509342043,
+ "units_curve": {
+  "10": 0.64
+ },
+ "medium_reps": [
+  "R3_spectral"
+ ],
+ "used_reps": [
+  "R7_quantised",
+  "R4_summary",
+  "R3_spectral"
+ ],
+ "verdict": "FAIL"
+}

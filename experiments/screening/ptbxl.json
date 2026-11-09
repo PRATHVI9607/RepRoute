@@ -1,0 +1,49 @@
+{
+ "dataset": "ptbxl",
+ "windows": 10266,
+ "units": 10266,
+ "classes": 3,
+ "window_len": 4096,
+ "f_raw_macro_f1": 0.48411224725724233,
+ "chance": 0.3333333333333333,
+ "disagreement": {
+  "R2_wavelet": 0.4840909090909091,
+  "R3_spectral": 0.18928571428571428,
+  "R4_summary": 0.21071428571428574,
+  "R5_latent": 0.16883116883116878,
+  "R7_quantised": 0.16883116883116878,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 8192,
+  "R2_wavelet": 2472,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.9176406926406926,
+  "R4_summary": 0.030194805194805194,
+  "R3_spectral": 0.011904761904761904,
+  "R2_wavelet": 0.011255411255411256,
+  "R0_raw": 0.029004329004329005
+ },
+ "hardness_auc": 0.805617683794696,
+ "units_curve": {
+  "10": 0.22272727272727277,
+  "50": 0.31493506493506496,
+  "200": 0.23311688311688317,
+  "7186": 0.18928571428571428
+ },
+ "medium_reps": [
+  "R3_spectral",
+  "R4_summary",
+  "R5_latent",
+  "R7_quantised"
+ ],
+ "used_reps": [
+  "R7_quantised"
+ ],
+ "verdict": "FAIL"
+}

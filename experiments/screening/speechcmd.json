@@ -1,0 +1,47 @@
+{
+ "dataset": "speechcmd",
+ "windows": 20000,
+ "units": 2422,
+ "classes": 10,
+ "window_len": 16384,
+ "f_raw_macro_f1": 0.5351107566967124,
+ "chance": 0.1,
+ "disagreement": {
+  "R2_wavelet": 0.8767349636483807,
+  "R3_spectral": 0.3612029081295439,
+  "R4_summary": 0.732815598149372,
+  "R5_latent": 0.8955717118307998,
+  "R7_quantised": 0.8975545274289491,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 32768,
+  "R2_wavelet": 9846,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.39689358889623266,
+  "R4_summary": 0.24124256444150693,
+  "R5_latent": 0.02362855254461335,
+  "R3_spectral": 0.2546816479400749,
+  "R2_wavelet": 0.01002423441286627,
+  "R0_raw": 0.07352941176470588
+ },
+ "hardness_auc": 0.5902102668973834,
+ "units_curve": {
+  "10": 0.891606080634501,
+  "50": 0.8778916060806345,
+  "200": 0.8683079973562459,
+  "1695": 0.8767349636483807
+ },
+ "medium_reps": [],
+ "used_reps": [
+  "R7_quantised",
+  "R4_summary",
+  "R3_spectral"
+ ],
+ "verdict": "FAIL"
+}

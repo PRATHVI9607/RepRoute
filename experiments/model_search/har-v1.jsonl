@@ -1,0 +1,3 @@
+{"dataset": "har-v1", "candidate": "spec (SpecNet, ADR 0004)", "inner_folds": 3, "train_groups": 12, "inner_f1_mean": 0.5246355970852801, "inner_f1_per_fold": [0.5315690193280246, 0.49031554876660394, 0.5520222231612117], "seconds": 1.5}
+{"dataset": "har-v1", "candidate": "env (EnvNet, ADR 0006)", "inner_folds": 3, "train_groups": 12, "inner_f1_mean": 0.48814939184397904, "inner_f1_per_fold": [0.4930933195213128, 0.47863449962778454, 0.4927203563828398], "seconds": 0.6}
+{"dataset": "har-v1", "candidate": "wave (RawNet CNN, 30 epochs)", "inner_folds": 3, "train_groups": 12, "inner_f1_mean": 0.7332257504717333, "inner_f1_per_fold": [0.6712160683975541, 0.7875784989238097, 0.7408826840938363], "seconds": 3.5}

@@ -1,0 +1,48 @@
+{
+ "dataset": "uored",
+ "windows": 3060,
+ "units": 20,
+ "classes": 3,
+ "window_len": 4096,
+ "f_raw_macro_f1": 0.43792138691467547,
+ "chance": 0.3333333333333333,
+ "disagreement": {
+  "R2_wavelet": 0.20686274509803926,
+  "R3_spectral": 0.04313725490196074,
+  "R4_summary": 0.20882352941176474,
+  "R5_latent": 0.13921568627450975,
+  "R7_quantised": 0.13921568627450975,
+  "R0_raw": 0.0
+ },
+ "bytes": {
+  "R0_raw": 8192,
+  "R2_wavelet": 2472,
+  "R3_spectral": 128,
+  "R4_summary": 40,
+  "R5_latent": 64,
+  "R7_quantised": 8
+ },
+ "picker_usage": {
+  "R7_quantised": 0.8705882352941177,
+  "R4_summary": 0.12450980392156863,
+  "R2_wavelet": 0.000326797385620915,
+  "R0_raw": 0.004575163398692811
+ },
+ "hardness_auc": 0.7447813794973084,
+ "units_curve": {
+  "10": 0.13921568627450975,
+  "14": 0.13921568627450975
+ },
+ "medium_reps": [
+  "R2_wavelet",
+  "R3_spectral",
+  "R4_summary",
+  "R5_latent",
+  "R7_quantised"
+ ],
+ "used_reps": [
+  "R7_quantised",
+  "R4_summary"
+ ],
+ "verdict": "MAYBE"
+}

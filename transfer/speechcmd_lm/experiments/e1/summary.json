@@ -1,0 +1,23 @@
+{
+ "n_folds": 5,
+ "n_reps_profiled": 11,
+ "n_classes": 10,
+ "f_raw_macro_f1": 0.916564683299581,
+ "majority_macro_f1": 0.017993765391891223,
+ "t_probe_ms": 0.6742645,
+ "t_pred_ms": 0.1320925,
+ "t_sel_ms": 0.124304,
+ "mean_load_exponent": 0.17375018446476678,
+ "t_io_ms": 2.228573499663775,
+ "io_load_exponent": 0.9953952613578727,
+ "io_excess_ms/load0": 2.228573499663775,
+ "io_excess_ms/load0.8": 11.060592499278886,
+ "f_raw": "wave",
+ "bottleneck": "generic",
+ "overhead_ms/sensors1": 0.930661,
+ "t_enc_ms/r6_bottleneck/sensors1": 0.976963,
+ "overhead_ms/sensors8": 0.745673,
+ "t_enc_ms/r6_bottleneck/sensors8": 0.906346,
+ "overhead_ms/sensors32": 0.6799815,
+ "t_enc_ms/r6_bottleneck/sensors32": 0.8511555
+}
