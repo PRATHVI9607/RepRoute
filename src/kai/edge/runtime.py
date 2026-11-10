@@ -149,7 +149,7 @@ class Edge:
         self._in_flight: deque[tuple[int, int, float, int]] = (
             deque()
         )  # (window, rep_code, t_send, bytes)
-        self._last_ack = 0.0
+        self._last_ack = _now_s()  # no ack yet: the probe clock starts at construction
         self._pace_free_at = 0.0
         self._deferred: deque[tuple[int, np.ndarray]] = deque()
         self.records: dict[int, dict] = {}
@@ -250,9 +250,12 @@ class Edge:
     def _load(self) -> float:
         if self.cfg.load is not None:
             return self.cfg.load
-        return min(psutil.cpu_percent(None) / 100.0, 0.95)
+        # the core the edge runs on: an all-core mean hides it, and the first call returns 0.0
+        core = psutil.Process().cpu_num()
+        return min(psutil.cpu_percent(None, percpu=True)[core] / 100.0, 0.95)
 
     async def run(self, windows: np.ndarray, window_ids: np.ndarray) -> list[dict]:
+        psutil.cpu_percent(None, percpu=True)  # prime: the first reading would be 0.0
         await self.measure_rtt()
         acks = asyncio.create_task(self._acks())
         reps = self.bundle.reps
@@ -271,6 +274,7 @@ class Edge:
         raw_wire = reps[0].size_model().q95_bytes + fr.OVERHEAD_BYTES
         period_s = self.cfg.period_ms / 1000.0
         t_start = _now_s()
+        self._last_ack = t_start
         try:
             for n, (x, wid) in enumerate(zip(windows, window_ids.tolist(), strict=True)):
                 t_arrive = t_start + n * period_s  # scheduled arrival: the loop may wake late

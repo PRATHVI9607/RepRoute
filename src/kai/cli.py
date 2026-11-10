@@ -6,12 +6,25 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+if TYPE_CHECKING:
+    from kai.contracts.windows import WindowSet
+
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 Overrides = Annotated[list[str] | None, typer.Argument(help="Hydra overrides, e.g. scenario=mini")]
+
+
+def _windows_fingerprint(ws: WindowSet) -> str:
+    """Cheap identity of a WindowSet: shape, ids, labels and a strided sample of x."""
+    import hashlib
+
+    h = hashlib.sha256(repr(ws.x.shape).encode())
+    for a in (ws.window_id, ws.label, ws.x[:: max(1, len(ws.x) // 4096)]):
+        h.update(a.tobytes())
+    return h.hexdigest()
 
 
 @app.command()
@@ -52,6 +65,7 @@ def folds(
         (work() / cfg.dataset.splits_dir).glob(f"{ws.dataset_id}_{level}_*.json")
     )
     manifest = load_manifest(manifest_path)
+    fingerprint = _windows_fingerprint(ws)
     fold_cfg = FoldConfig(
         f_raw or cfg.dataset.f_raw,
         epochs_raw,
@@ -80,10 +94,19 @@ def folds(
                     f"{out} was trained with another recipe (or an unrecorded one); "
                     "rerun with --force to retrain it"
                 )
+            stamp = out / "windows.json"
+            if not stamp.exists():  # trust on first use
+                stamp.write_text(json.dumps({"fingerprint": fingerprint}))
+            elif json.loads(stamp.read_text()).get("fingerprint") != fingerprint:
+                raise typer.BadParameter(
+                    f"{out} was trained on other windows (the dataset file was rebuilt); "
+                    "rerun with --force to retrain it"
+                )
             typer.echo(f"skip {out.name} (done, same recipe)")
             continue
         t0 = time.perf_counter()
         _, metrics = run_fold(ws, fold, fold_cfg, out, work() / "data/interim/cache")
+        (out / "windows.json").write_text(json.dumps({"fingerprint": fingerprint}))
         f1 = {k.split("/")[1]: round(v, 3) for k, v in metrics.items() if k.startswith("macro_f1/")}
         dis = {
             k.split("/")[2]: round(v, 3)

@@ -1,0 +1,42 @@
+% Source: PRD §5, docs/theory/regime-theory.md, ADR 0008, ADR 0013, ADR 0019, ADR 0021.
+\section{System}
+\label{sec:system}
+
+\paragraph{Select, then encode.} For every window the edge runs the probe, the predictor and the
+selector, and then exactly one encoder. All four are charged to the same time budget as the
+transmission. The edge runtime imports only numpy and ONNX Runtime; learned encoders are exported
+to ONNX and their int8 payloads are bit-exact with the training code.
+
+\paragraph{Wire frame and bundle.} Every frame carries a 4-byte contract hash of the
+representation's code version, parameters and model bytes, so the cloud refuses a payload it
+cannot decode as intended. Everything the edge and the cloud need for one calibration (encoders,
+heads, predictor, thresholds per $\alpha$, the cascade's free set) is an immutable, hash-verified
+bundle.
+
+\paragraph{Cost model.} A run is priced per window under a preset: payload bytes, edge CPU time,
+modelled energy, and lateness $\max(0, L-D)$ capped at $10D$; a window that is never delivered is
+charged the cap. The default preset, \texttt{metered\_cellular}, prices bytes. Timings are measured
+at each node's duty cycle (one window every period divided by the number of sensors), with median
+and median absolute deviation (MAD) over repeated runs after warm-up, and a per-frame runtime
+overhead calibrated on the real runtime.
+
+\paragraph{Latency model and break-even bandwidths.} With an empty uplink queue the latency of
+representation $r$ at bandwidth $B$ and edge load $\rho$ is
+\begin{equation}
+  L_r(B,\rho) = a_r(\rho) + \frac{8(S_r + 28)}{B},\quad
+  a_r(\rho) = \frac{t_{\mathrm{ovh}}}{1-\rho} + \frac{t_{\mathrm{enc},r}}{(1-\rho)^{\gamma_r}}
+  + \frac{\mathrm{RTT}}{2} + t_{\mathrm{dec},r} + t_{\mathrm{head},r},
+  \label{eq:latency}
+\end{equation}
+where $S_r$ is the payload in bytes, 28 the frame overhead and $\gamma_r$ a fitted load exponent.
+In $u = 1/B$ each $L_r$ is a line; the fastest representation is the lower envelope, and
+consecutive members $i,j$ ($S_j > S_i$) meet at the break-even bandwidth
+$B^*_{ij}(\rho) = 8(S_j - S_i)/(a_i(\rho) - a_j(\rho))$. Hypothesis H6 tests these closed-form
+boundaries against measured ones.
+
+\paragraph{Simulator and real backends.} A discrete-event simulator (DES) replays workloads over a
+scenario grid of link type (static, bursty Markov, synthetic cellular and three classes of measured
+4G traces~\cite{raca2018traces}), deadline, edge load, sensors per node and $\alpha$: 1296 cells.
+The same bundle runs on two real backends: loopback sockets with token-bucket pacing, and Docker
+containers with \texttt{tc netem} rate and delay on the edge egress. Both run on the development
+laptop, not on separate edge hardware.

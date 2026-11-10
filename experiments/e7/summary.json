@@ -1,15 +1,15 @@
 {
  "backend": "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi), 300 windows per rate",
- "max_p50_rel_gap": 0.0415107514738669,
+ "max_p50_rel_gap": 0.11608284824241727,
  "min_selection_agreement": 1.0,
  "n_rows_unmeasured": 0,
  "rows": [
   {
    "bandwidth_bps": 256000.0,
-   "p50_real_ms": 3.629862010055944,
+   "p50_real_ms": 3.7840249964529,
    "p50_sim_ms": 3.611789502990348,
-   "p50_rel_gap": 0.004978841348659898,
-   "p95_real_ms": 4.133964457358957,
+   "p50_rel_gap": 0.045516478782249944,
+   "p95_real_ms": 4.273736895443108,
    "p95_sim_ms": 3.61178950299057,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
@@ -17,10 +17,10 @@
   },
   {
    "bandwidth_bps": 1000000.0,
-   "p50_real_ms": 2.620086002610438,
+   "p50_real_ms": 2.7751044946201873,
    "p50_sim_ms": 2.588789502990352,
-   "p50_rel_gap": 0.011944836768298715,
-   "p95_real_ms": 3.143493914870592,
+   "p50_rel_gap": 0.06713800939424996,
+   "p95_real_ms": 3.2642141014806256,
    "p95_sim_ms": 2.588789502990574,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
@@ -28,10 +28,10 @@
   },
   {
    "bandwidth_bps": 5000000.0,
-   "p50_real_ms": 2.2152334958861544,
+   "p50_real_ms": 2.6101875027572996,
    "p50_sim_ms": 2.30718950299047,
-   "p50_rel_gap": 0.0415107514738669,
-   "p95_real_ms": 2.814285543505052,
+   "p50_rel_gap": 0.11608284824241727,
+   "p95_real_ms": 3.0454203431484084,
    "p95_sim_ms": 2.307189502991136,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
@@ -42,5 +42,5 @@
  "bundle_git_sha": "40d602a2bfd7c31b812e98c061ca9a079788502b",
  "profiles_sha256": "065739a047b4d0334112a80908eac3eb76e1d00fd6fb4eb002a6315f78965ee8",
  "selector": "s1_greedy_safe",
- "H7_pass": true
+ "H7_pass": false
 }

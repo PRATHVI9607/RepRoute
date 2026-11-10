@@ -124,6 +124,8 @@ def group_crc_threshold(m: F64, groups: npt.NDArray[np.generic], alpha: float) -
         raise ValueError("NaN loss threshold m_i")
     _, inv, size = np.unique(groups, return_inverse=True, return_counts=True)
     n_g = len(size)
+    if n_g == 0:
+        return RAW_ONLY
     budget = (alpha * (n_g + 1) - 1) / n_g + 1e-9 / n_g  # same float slack as crc_threshold
     if budget < 0:
         return RAW_ONLY

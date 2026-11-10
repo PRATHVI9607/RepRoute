@@ -10,7 +10,7 @@ import numpy as np
 from kai.contracts.schemas import Flag
 from kai.select.cost import F64, Bool, OverheadKind, State
 
-Mission = Literal["fidelity_first", "liveness_first"]
+Mission = Literal["fidelity_first", "liveness_first", "certified_late"]
 NO_REP = -1
 
 
@@ -50,19 +50,32 @@ class Selector(Protocol):
     # Only learning baselines define them.
 
 
-def ladder(allowed: Bool, feasible: Bool, cost: F64, mission: Mission) -> Decision:
+def ladder(
+    allowed: Bool,
+    feasible: Bool,
+    cost: F64,
+    mission: Mission,
+    sendable: Bool | None = None,
+) -> Decision:
     """First rule that yields an action wins.
 
     1. a representation that is allowed (in the safe set) and feasible → cheapest, `certified`
-    2. none, fidelity_first → cache raw and retry later (`deferred`); the executor turns this into
+    2. none, certified_late → cheapest allowed representation that is sendable (energy, storage
+       and link up; the deadline is ignored), still `certified` (ADR 0025 A); `deferred` when
+       nothing allowed is sendable
+    3. none, fidelity_first → cache raw and retry later (`deferred`); the executor turns this into
        `dropped` when its store-and-forward buffer is full
-    3. none, liveness_first → cheapest deadline-feasible representation outside the safe set
+    4. none, liveness_first → cheapest deadline-feasible representation outside the safe set
        (`uncertified`), or `dropped` when nothing can meet the deadline at all
     """
     candidates = allowed & feasible
     if candidates.any():
         return Decision(int(np.where(candidates, cost, np.inf).argmin()), "certified")
-    if mission == "fidelity_first":
+    if mission == "certified_late" and sendable is not None:
+        late = allowed & sendable
+        if late.any() and np.isfinite(np.where(late, cost, np.inf)).any():
+            return Decision(int(np.where(late, cost, np.inf).argmin()), "certified")
+    if mission in ("fidelity_first", "certified_late"):
         return Decision(NO_REP, "deferred")
     if feasible.any():
         return Decision(int(np.where(feasible, cost, np.inf).argmin()), "uncertified")

@@ -1,0 +1,87 @@
+% arXiv build only (main-arxiv.tex). Sources: docs/theory/proposition1.md;
+% results-hust.md, results-uored.md, results-ptbxl.md (earlier code).
+\section{Proof of Proposition~\ref{prop:anyselector}}
+\label{app:proof}
+
+\paragraph{Step 1: the loss is a threshold function.} Let $m(x) = \min\{\gh_r(x) : d_r(x) = 1\}$,
+with $m(x) = +\infty$ if no representation disagrees. Because $r_0$ never disagrees, a member of
+$\Sset(x)$ disagrees iff some $r$ has $d_r(x) = 1$ and $\gh_r(x) \le \lambda$, so
+$L(x;\lambda) = \1[\lambda \ge m(x)]$. Hence $\lambda \mapsto L(x;\lambda)$ is non-decreasing,
+bounded by 1, and $L(x;-1) = 0$ because $\gh \ge 0 > -1$.
+
+\paragraph{Step 2: exchangeable losses.} $m$ is a fixed measurable function of $x$ once the
+predictor and the heads are fixed, and both were fitted on data independent of
+$(x_1,\dots,x_{n+1})$. Hence $L_i(\lambda) := L(x_i;\lambda)$, $i = 1,\dots,n+1$, are exchangeable
+random functions.
+
+\paragraph{Step 3: conformal risk control on a finite grid.} This is the argument of Theorem~1 of
+\cite{angelopoulos2024crc}, written for a finite grid $\Lambda$ so that no continuity of the loss
+is needed: with $\Sset = \{\gh \le \lambda\}$ the loss $\1[\lambda \ge m]$ is not right-continuous
+in the direction their theorem assumes, and a supremum over a continuum would not be attained when
+scores tie. Let $\hat R_{n+1}(\lambda) = \frac{1}{n+1}\sum_{i\le n+1} L_i(\lambda)$ and
+$\lh' = \max\{\lambda \in \Lambda : \hat R_{n+1}(\lambda) \le \alpha\}$. The set contains $-1$,
+where every loss is 0, and $\Lambda$ is finite, so the maximum is attained and
+$\hat R_{n+1}(\lh') \le \alpha$.
+\begin{itemize}
+  \item Because $L_{n+1} \le 1$, $\hat R_{n+1}(\lambda) \le (n\hat R_n(\lambda) + 1)/(n+1)$ for
+  every $\lambda$. Every $\lambda$ that qualifies for $\lh$ in \eqref{eq:lhat} therefore qualifies
+  for $\lh'$, so $\lh \le \lh'$ (also when $\lh = -1$), and by monotonicity
+  $L_{n+1}(\lh) \le L_{n+1}(\lh')$.
+  \item $\lh'$ is a symmetric function of the exchangeable $L_1,\dots,L_{n+1}$, hence
+  $\E[L_{n+1}(\lh')] = \E\bigl[\frac{1}{n+1}\sum_i L_i(\lh')\bigr] = \E[\hat R_{n+1}(\lh')] \le
+  \alpha$.
+\end{itemize}
+Together, $\E[L(x_{n+1};\lh)] \le \alpha$.
+
+\paragraph{Step 4: any selector inside the safe set.} On $C$, $\pi(x_{n+1},z) \in
+S_{\lh}(x_{n+1})$, therefore $d_\pi(x_{n+1})\1\{C\} \le \max_{r\in S_{\lh}} d_r(x_{n+1}) =
+L(x_{n+1};\lh)$ pointwise, whatever the selector looks at: scores, system state, its own
+randomness, even the losses themselves. Taking expectations gives the first inequality. What must
+not depend on the test losses is $\lh$, the scores $\gh$ (both fixed before the test window), and
+the set of windows the average is taken over. \qed
+
+\paragraph{Computing $\lh$.} With $m_{(1)} \le \dots \le m_{(n)}$ the sorted calibration values and
+$k = \lfloor \alpha(n+1) - 1\rfloor$: if $k < 0$ (that is, $n < \lceil 1/\alpha\rceil - 1$), even
+zero observed losses fail the bound and the safe set is raw only; if $k \ge n$ or $m_{(k+1)} =
++\infty$, everything is safe; otherwise $\lh$ is the largest float strictly below $m_{(k+1)}$, so
+ties at $m_{(k+1)}$ are excluded.
+
+\paragraph{The cascade.} If $F$ and $A(x)$ are each calibrated by V0 at $\alpha/2$ (each a fixed
+score function fitted on \texttt{ptrain}, each threshold from \texttt{calib}), then for every window
+$\max_{F\cup A(x)} d \le \max_F d + \max_{A(x)} d$, hence $\E[\max_{F\cup A(x)} d] \le \alpha$, and
+Step~4 covers any selector inside the union, including one that decides from the system state
+whether to compute $\gh$, as long as it sends a member of $F$ when it does not.
+
+\section{Datasets run with earlier code}
+\label{app:earlier}
+
+% src: results-hust.md, results-uored.md, results-ptbxl.md (E1, E2, E3, E5, E7)
+HUST, UORED and PTB-XL were run before the code of the final rerun (non-blocking pacing,
+lag-aware deadlines, audit feedback for certified decisions only, group CRC). Their numbers are
+not comparable with Section~\ref{sec:results} number for number; the HUST run predates the
+cascade. Table~\ref{tab:earlier} reports them at $\alpha = 0.05$.
+
+\begin{table}[h]
+\centering
+\caption{Earlier-code datasets, five folds each, $\alpha = 0.05$.}
+\label{tab:earlier}
+\small
+\begin{tabular}{lrrr}
+\toprule
+& HUST & UORED & PTB-XL \\
+\midrule
+$\fraw$ macro-F1 (majority)     & 0.636 (0.167) & 0.751 (0.267) & 0.673 (0.261) \\
+V0 risk                          & 0.0777 & 0.0788 & 0.0489 \\
+Cascade risk\expl                & -- & 0.0588 & 0.0244 \\
+Static risk\expl                 & 0.0265 & 0.0173 & 0.0320 \\
+H3 cost vs B4                    & $-27.2\,\%$ & $-15.7\,\%$ & $-61.4\,\%$ \\
+H5 full menu vs best family      & $+15.1\,\%$ (M) & $+15.2\,\%$ (M) & $+15.9\,\%$ (S) \\
+H7 worst p50 gap                 & 11.9\,\% & 13.1\,\% & 23.4\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On HUST and UORED, V0's mean risk is above $\alpha$ at every level, and on UORED the cascade's mean
+is above $\alpha$ at $\alpha = 0.05$. H7 fails on all three. These runs predate the non-blocking
+pacing fix, which changed the Speech Commands H7 result from a 17.3\,\% gap and 84.0\,\% agreement to
+12.5\,\% and 98.7\,\%; they were not rerun.

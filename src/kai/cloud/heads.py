@@ -14,6 +14,12 @@ from kai.reps.base import BaseRep
 from kai.reps.registry import load_menu
 
 
+def _softmax(logits: np.ndarray) -> np.ndarray:
+    e = np.exp(logits - logits.max(axis=1, keepdims=True))
+    out: np.ndarray = e / e.sum(axis=1, keepdims=True)
+    return out
+
+
 @dataclass(frozen=True)
 class LinearHead:
     """Standardise → affine → argmax. A constant decision is the zero-weight case."""
@@ -28,6 +34,11 @@ class LinearHead:
         out: np.ndarray = (z @ self.weight.T + self.bias).argmax(axis=1)
         return out
 
+    def proba(self, x: np.ndarray) -> np.ndarray:
+        """[n, C] class probabilities (softmax of the logits); argmax equals `predict`."""
+        z = (np.atleast_2d(x).astype(np.float64) - self.mean) / self.scale
+        return _softmax(z @ self.weight.T + self.bias)
+
 
 @dataclass(frozen=True)
 class TreeHead:
@@ -38,6 +49,15 @@ class TreeHead:
         proba = np.asarray(self.booster.predict(np.atleast_2d(x).astype(np.float64), num_threads=1))
         column = (proba > 0.5).astype(int) if proba.ndim == 1 else proba.argmax(axis=1)
         out: np.ndarray = self.classes[column]
+        return out
+
+    def proba(self, x: np.ndarray, n_classes: int | None = None) -> np.ndarray:
+        """[n, C] with column c = class c; classes the booster never saw get probability 0."""
+        p = np.asarray(self.booster.predict(np.atleast_2d(x).astype(np.float64), num_threads=1))
+        if p.ndim == 1:  # binary: the booster outputs P(classes[1])
+            p = np.stack([1.0 - p, p], axis=1)
+        out = np.zeros((len(p), max(int(self.classes.max()) + 1, n_classes or 0)))
+        out[:, self.classes] = p
         return out
 
 
@@ -58,6 +78,15 @@ class OnnxHead:
         ]
         out: np.ndarray = np.concatenate(logits).argmax(axis=1)
         return out
+
+    def proba(self, x: np.ndarray, batch: int = 2048) -> np.ndarray:
+        """[n, C] softmax of the logits; argmax equals `predict`."""
+        x = np.atleast_2d(np.asarray(x, np.float32))
+        logits = [
+            self._session.run(None, {"x": x[i : i + batch, None, :]})[0]
+            for i in range(0, len(x), batch)
+        ]
+        return _softmax(np.concatenate(logits).astype(np.float64))
 
 
 Head = LinearHead | TreeHead | OnnxHead

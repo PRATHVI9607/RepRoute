@@ -1,0 +1,63 @@
+% Claims worded to match docs/research/novelty-log.md and PRD §3.3 (revised 2026-10-14).
+\section{Introduction}
+\label{sec:intro}
+
+A sensor node that cannot run the full model offloads its windows to a cloud model. The bytes it
+sends are a choice: raw samples, a lossless or a bounded-lossy waveform, a few engineered
+features, or a learned latent of 16 bytes. Smaller payloads meet deadlines on slow links and cost
+less on metered ones. They can also change what the cloud decides.
+
+Existing systems make this choice by heuristics or by learned policies, and none of them states
+what the choice does to the downstream decision. AdaEdge~\cite{liu2024adaedge} already selects
+among lossless and lossy codecs per segment by the agreement of the model's output on decoded data
+with its output on raw data, but as a best-effort bandit with no bound. Conformal methods have
+reached the edge~\cite{kalor2025blackbox,huang2025cascades,zhu2024cdcrc}, but they select models,
+labels or resources, not the representation of the payload.
+
+\paragraph{Certify, then optimise.} We separate the guarantee from the optimisation. A
+sufficiency predictor scores, per window, how likely each representation is to change the cloud's
+decision. Conformal risk control (CRC)~\cite{angelopoulos2024crc} calibrates one threshold on those
+scores. The resulting safe set has the property that matters for a system: the bound on
+certified disagreements holds for \emph{every} selector that picks inside the set
+(Proposition~\ref{prop:anyselector}). The selector can use the link state, the queue or its own
+randomness; it can be greedy, model-predictive or learned, and it can be replaced without
+re-proving anything.
+
+\paragraph{An honest evaluation.} The certificate is only as meaningful as the reference model it
+agrees with, and the guarantee assumes exchangeable calibration and test data. We therefore
+evaluate strictly on units never seen in training (bearings, people, speakers, sleepers), choose
+every reference model by inner cross-validation on training units, and record every
+candidate, losers included. On the bearing data, scores near 0.95 reported in the literature come
+from splits that share bearings between training and test~\cite{realistic2026bearing}; under
+leave-bearings-out splits our best reference model reaches a macro-F1 of 0.604. We pre-registered
+seven hypotheses before the first evaluation and report every verdict as registered.
+
+\paragraph{Findings.} The certificate is the result that holds. A cascade of a fixed set and a
+per-window set, each at $\alpha/2$, keeps mean disagreement below $\alpha$ on every dataset we
+reran with the final code; it was added after the first results and is exploratory. The
+window-level certificate lands near $\alpha$, as a tight expected-risk bound predicts; it meets
+its pre-registered threshold only on Sleep-EDF, not significantly, and the registered one-sided test
+cannot reject for a bound that is tight at $\alpha$. Per-window adaptivity does not pay: it fails
+its pre-registered value test on every dataset. On three of four an uncertified fixed choice is
+cheaper, because when the certificate refuses the cheap latent the next certified payload is
+kilobytes, which a slow link cannot deliver before the deadline; on HAR adaptive choice is cheaper
+but misses the SLO-reduction target. A
+mixed menu pays only where the menu holds a small representation close to the raw decision. These
+are the regimes a practitioner needs to know.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item \textbf{C1 (narrowed).} A per-window sufficiency certificate over a heterogeneous
+  representation menu, the any-selector statement (Proposition~\ref{prop:anyselector}), and a
+  union-bound cascade that spends edge compute on per-window scoring only when the cost model says
+  it could pay (Section~\ref{sec:method}).
+  \item \textbf{C4.} A leakage-safe benchmark: leave-units-out splits, a recorded reference-model
+  search, a discrete-event simulator validated against real sockets and a Docker testbed, and
+  pre-registered hypotheses with their verdicts (Sections~\ref{sec:system}--\ref{sec:protocol}).
+  \item \textbf{C5.} An empirical map of when adaptive representation choice pays, on four
+  datasets rerun with the final code and three from earlier code, with negative results reported
+  as such (Section~\ref{sec:results}).
+\end{itemize}
+
+We do not claim that task-aware compression, adaptive offloading, conformal prediction at the
+edge or a heterogeneous codec menu is new; each has prior work (Section~\ref{sec:related}).

@@ -1,24 +1,24 @@
 {
- "n_boundaries_measured": 3,
+ "n_boundaries_measured": 5,
  "n_boundaries_matched": 1,
  "n_boundaries_theory": 2,
- "max_rel_error": 0.006106566750904466,
- "median_latency_model_error": 0.232305372571125,
+ "max_rel_error": 0.2017155324489783,
+ "median_latency_model_error": 0.2172586541593952,
  "n_cells_unmeasured": 0,
  "boundaries": [
   {
    "load": 0.0,
    "low": "r6_bottleneck",
    "high": "r4_summary",
-   "bps_measured": 174548.37249707276,
+   "bps_measured": 140195.36696727635,
    "bps_theory": 175620.81271275127,
-   "rel_error": 0.006106566750904466
+   "rel_error": 0.2017155324489783
   },
   {
    "load": 0.0,
    "low": "r4_summary",
    "high": "r5_ae",
-   "bps_measured": 1493277.4862067676,
+   "bps_measured": 4674006.5754058715,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -26,7 +26,23 @@
    "load": 0.0,
    "low": "r5_ae",
    "high": "r4_summary",
-   "bps_measured": 2201217.813996621,
+   "bps_measured": 6868297.268094351,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r5_ae",
+   "bps_measured": 14321220.666432727,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r5_ae",
+   "high": "r4_summary",
+   "bps_measured": 24736003.338059563,
    "bps_theory": null,
    "rel_error": NaN
   }
@@ -34,23 +50,37 @@
  "family/n_theory": 4,
  "family/n_measured": 1,
  "family/n_matched": 1,
- "family/max_rel_error": 0.3623542567219787,
+ "family/max_rel_error": 0.34927547124581243,
  "family_boundaries": [
   {
    "load": 0.8,
    "low": "r2b_wavelet",
    "high": "r1_lossless",
-   "bps_measured": 12798451.475801773,
+   "bps_measured": 13060961.189139813,
    "bps_theory": 20071413.650481302,
-   "rel_error": 0.3623542567219787
+   "rel_error": 0.34927547124581243
   }
  ],
- "latency_model_bias/load0": -0.2533426428850762,
- "latency_model_bias/load0.8": -0.15202899524073032,
- "H6_pass": true,
+ "latency_model_bias/load0": -0.23562905670647502,
+ "latency_model_bias/load0.8": -0.15003416260155797,
+ "H6_pass": false,
  "H6_noise_aware/n_measured": 0,
  "H6_noise_aware/n_matched": 0,
  "H6_noise_aware/max_rel_error": NaN,
  "H6_noise_aware/pass": false,
- "H6_noise_aware/boundaries": []
+ "H6_noise_aware/boundaries": [],
+ "H6x/median_se/changes": 1,
+ "H6x/median_se/matched": 1,
+ "H6x/median_se/worst_rel_error": 0.2017155324489783,
+ "H6x/median_se/threshold_met": false,
+ "H6x/median_se/boundaries": [
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r4_summary",
+   "bps_measured": 140195.36696727635,
+   "bps_theory": 175620.81271275127,
+   "rel_error": 0.2017155324489783
+  }
+ ]
 }

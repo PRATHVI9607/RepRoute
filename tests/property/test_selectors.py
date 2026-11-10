@@ -67,7 +67,7 @@ def test_certified_decisions_are_always_inside_the_safe_set(
     wt: tuple[Window, Truth], state: State
 ) -> None:
     win, truth = wt
-    for sel in all_selectors():
+    for sel in [*all_selectors(), Oracle(MODEL)]:
         dec = sel.select(win, state, truth)
         assert isinstance(dec, Decision)
         assert (dec.rep == NO_REP) == (dec.flag in ("deferred", "dropped"))
@@ -183,6 +183,32 @@ def test_ladder_steps_in_order() -> None:
     assert ladder(safe, none, cost, "liveness_first") == Decision(NO_REP, "dropped")
 
 
+def test_certified_late_sends_the_cheapest_sendable_safe_rep_and_defers_otherwise() -> None:
+    cost = np.array([5.0, 4.0, 3.0, 2.0, 1.0])
+    safe = np.array([True, True, True, False, False])
+    nothing = np.zeros(K, bool)
+    sendable = np.array([True, True, False, True, True])
+    late = ladder(safe, nothing, cost, "certified_late", sendable)
+    assert late == Decision(1, "certified")  # rep 2 is cheaper but not sendable; 3, 4 not safe
+    assert ladder(safe, nothing, cost, "certified_late", nothing) == Decision(NO_REP, "deferred")
+    assert ladder(safe, nothing, cost, "certified_late") == Decision(NO_REP, "deferred")
+    # a feasible safe rep still wins the first rung, and the other missions ignore `sendable`
+    assert ladder(safe, np.ones(K, bool), cost, "certified_late", sendable) == Decision(
+        2, "certified"
+    )
+    assert ladder(safe, nothing, cost, "fidelity_first", sendable) == Decision(NO_REP, "deferred")
+
+
+def test_sendable_ignores_the_deadline_but_not_the_link_or_storage() -> None:
+    s = State(
+        1e6, 20.0, 0.0, 0.0, deadline_ms=0.001, energy_budget_j=np.inf, storage_free_bytes=np.inf
+    )
+    assert not MODEL.feasible(s).any()
+    assert MODEL.sendable(s).all()
+    assert not MODEL.sendable(replace(s, bandwidth_bps=0.0)).any()
+    assert not MODEL.sendable(replace(s, storage_free_bytes=40.0)).any()
+
+
 def test_cost_model_matches_the_prd_formula_by_hand() -> None:
     s = State(bandwidth_bps=1e6, rtt_ms=20, backlog_bytes=1000, load=0.5, deadline_ms=30)
     k = 2  # wavelet: 600 B, enc 1.0, dec 0.6, head 1.0
@@ -273,3 +299,22 @@ def test_cascade_serves_from_its_free_set_only_when_probing_cannot_pay(state: St
         assert c_free[dec.rep] <= best_other
     else:  # nothing could be sent even after probing
         assert not np.isfinite(best_other)
+
+
+@given(windows())
+def test_oracle_flags_uncertified_outside_the_safe_set(wt: tuple[Window, Truth]) -> None:
+    win, truth = wt
+    dec = Oracle(MODEL).select(win, truth.state, truth)
+    if dec.rep != NO_REP:
+        assert (dec.flag == "certified") == bool(win.safe[dec.rep])
+
+
+def test_mpc_sequence_cache_is_bounded() -> None:
+    import itertools
+
+    mpc = MpcSafe(MODEL, period_ms=64.0)
+    mpc._seqs_cap = 4
+    for r in range(1, K + 1):
+        for members in itertools.combinations(range(K), r):
+            mpc._sequences(members)
+            assert len(mpc._seqs) <= 4

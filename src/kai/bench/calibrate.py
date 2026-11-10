@@ -47,11 +47,14 @@ def gate_auc(
 ) -> float:
     """Mean held-out AUC of ĝ_r against d_r on `ptrain`, unit-grouped CV (ADR 0022 gate).
 
-    Only non-raw representations with both outcomes in a held-out part count. NaN when none does.
+    Only non-raw representations with both outcomes in a held-out part count. NaN when none does
+    or with fewer than 2 groups; the caller's `auc >= AUTO_GATE_AUC` is then False (static set).
     """
     from sklearn.metrics import roc_auc_score
     from sklearn.model_selection import GroupKFold
 
+    if len(np.unique(groups)) < 2:
+        return float("nan")
     aucs: list[float] = []
     for tr, te in GroupKFold(min(n_splits, len(np.unique(groups)))).split(phi, groups=groups):
         g = fit_predictor(phi[tr], d[tr], rep_ids, "mlp", seed).predict(phi[te])

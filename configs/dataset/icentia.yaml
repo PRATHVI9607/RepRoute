@@ -3,5 +3,5 @@ id: icentia-v1
 windows: data/processed/icentia.npz
 splits_dir: data/splits
 folds_dir: artifacts/folds
-f_raw: wave  # provisional, set from scripts/select_reference.py
+f_raw: wave  # chosen by inner CV on train (scripts/select_reference.py, 2026-11-09)
 bottleneck: generic

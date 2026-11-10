@@ -1,80 +1,56 @@
 {
- "n_boundaries_measured": 9,
- "n_boundaries_matched": 2,
+ "n_boundaries_measured": 6,
+ "n_boundaries_matched": 1,
  "n_boundaries_theory": 8,
- "max_rel_error": 0.8723970763037587,
- "median_latency_model_error": 0.23830815738597222,
+ "max_rel_error": 0.313585815364782,
+ "median_latency_model_error": 0.22376994008911977,
  "n_cells_unmeasured": 0,
  "boundaries": [
   {
    "load": 0.0,
    "low": "r6_bottleneck",
    "high": "r4_summary",
-   "bps_measured": 158439.19460388238,
+   "bps_measured": 121606.77373914773,
    "bps_theory": 177162.38455033294,
-   "rel_error": 0.10568377702734737
+   "rel_error": 0.313585815364782
   },
   {
    "load": 0.0,
    "low": "r4_summary",
-   "high": "r5_ae",
-   "bps_measured": 939173.9539484372,
-   "bps_theory": 7360128.802253315,
-   "rel_error": 0.8723970763037587
-  },
-  {
-   "load": 0.0,
-   "low": "r5_ae",
-   "high": "r4_summary",
-   "bps_measured": 1279014.71797964,
+   "high": "r10b_logmel",
+   "bps_measured": 2925758.8396856724,
    "bps_theory": null,
    "rel_error": NaN
   },
   {
    "load": 0.0,
+   "low": "r10b_logmel",
+   "high": "r4_summary",
+   "bps_measured": 5073333.643424055,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r10b_logmel",
+   "bps_measured": 10640877.479851076,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
    "low": "r4_summary",
    "high": "r10a_logmel",
-   "bps_measured": 15378201.39828573,
+   "bps_measured": 690077.8097806784,
    "bps_theory": null,
    "rel_error": NaN
   },
   {
-   "load": 0.0,
+   "load": 0.8,
    "low": "r10a_logmel",
-   "high": "r10b_logmel",
-   "bps_measured": 22667627.30674839,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r4_summary",
-   "high": "r10b_logmel",
-   "bps_measured": 315835.4076806429,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r10b_logmel",
    "high": "r4_summary",
-   "bps_measured": 322545.2942261269,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r4_summary",
-   "high": "r10b_logmel",
-   "bps_measured": 753606.52928254,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r10b_logmel",
-   "high": "r4_summary",
-   "bps_measured": 2299160.4375803876,
+   "bps_measured": 1581783.8622643382,
    "bps_theory": null,
    "rel_error": NaN
   }
@@ -82,18 +58,28 @@
  "family/n_theory": 4,
  "family/n_measured": 1,
  "family/n_matched": 1,
- "family/max_rel_error": 0.3371305080655558,
+ "family/max_rel_error": 0.5409529520993176,
  "family_boundaries": [
   {
    "load": 0.8,
    "low": "r2b_wavelet",
    "high": "r1_lossless",
-   "bps_measured": 13176858.932486072,
+   "bps_measured": 9125172.099728609,
    "bps_theory": 19878511.672082238,
-   "rel_error": 0.3371305080655558
+   "rel_error": 0.5409529520993176
   }
  ],
- "latency_model_bias/load0": -0.24165776465409433,
- "latency_model_bias/load0.8": -0.1807466943810242,
- "H6_pass": false
+ "latency_model_bias/load0": -0.22234302339190398,
+ "latency_model_bias/load0.8": -0.16319842729728412,
+ "H6_pass": false,
+ "H6_noise_aware/n_measured": 0,
+ "H6_noise_aware/n_matched": 0,
+ "H6_noise_aware/max_rel_error": NaN,
+ "H6_noise_aware/pass": false,
+ "H6_noise_aware/boundaries": [],
+ "H6x/median_se/changes": 0,
+ "H6x/median_se/matched": 0,
+ "H6x/median_se/worst_rel_error": NaN,
+ "H6x/median_se/threshold_met": false,
+ "H6x/median_se/boundaries": []
 }

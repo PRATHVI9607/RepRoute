@@ -1,41 +1,41 @@
 {
  "backend": "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi), 60 windows per rate",
- "max_p50_rel_gap": 0.060927541943560155,
+ "max_p50_rel_gap": 0.013960530944671293,
  "min_selection_agreement": 1.0,
  "n_rows_unmeasured": 0,
  "rows": [
   {
    "bandwidth_bps": 256000.0,
-   "p50_real_ms": 83.85783950165946,
+   "p50_real_ms": 82.5356500034684,
    "p50_sim_ms": 83.68789149938038,
-   "p50_rel_gap": 0.0020266203289879396,
-   "p95_real_ms": 133.7365321067847,
+   "p50_rel_gap": 0.013960530944671293,
+   "p95_real_ms": 129.71677470492412,
    "p95_sim_ms": 132.35905499940088,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
-   "bandwidth_estimate_real_bps": 255075.8616068808
+   "bandwidth_estimate_real_bps": 254883.94848075986
   },
   {
    "bandwidth_bps": 1000000.0,
-   "p50_real_ms": 43.18262999887493,
+   "p50_real_ms": 45.550608005750846,
    "p50_sim_ms": 45.81364149936462,
-   "p50_rel_gap": 0.060927541943560155,
-   "p95_real_ms": 58.31448765176147,
+   "p50_rel_gap": 0.005774533099109616,
+   "p95_real_ms": 58.448716458396675,
    "p95_sim_ms": 58.31477999939807,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
-   "bandwidth_estimate_real_bps": 974288.1258455747
+   "bandwidth_estimate_real_bps": 974730.4909718949
   },
   {
    "bandwidth_bps": 5000000.0,
-   "p50_real_ms": 34.85133499839043,
+   "p50_real_ms": 35.354653496988135,
    "p50_sim_ms": 35.3880414993597,
-   "p50_rel_gap": 0.015399883562396131,
-   "p95_real_ms": 38.34674780141262,
+   "p50_rel_gap": 0.0009443736274889754,
+   "p95_real_ms": 38.38226494984144,
    "p95_sim_ms": 37.932699999362285,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
-   "bandwidth_estimate_real_bps": 4445357.88083925
+   "bandwidth_estimate_real_bps": 4548942.489299171
   }
  ],
  "bundle_id": "535a0c33ff3f",

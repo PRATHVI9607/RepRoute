@@ -166,15 +166,20 @@ def test_grid_helpers_ignore_cells_and_folds_that_carry_no_information() -> None
 def test_stored_grid_results_are_reused_and_extended_with_new_policies(
     tmp_path, monkeypatch
 ) -> None:
+    import json
+
     import pandas as pd
     from omegaconf import OmegaConf
 
+    from kai.bench import experiments as ex
     from kai.bench.experiments import out_dir, stored_or_run
 
     monkeypatch.setenv("KAI_WORK", str(tmp_path))
+    monkeypatch.setattr(ex, "provenance", lambda cfg: {"config_hash": "h", "split_id": "s"})
     pd.DataFrame({"policy": ["a", "b"], "cost": [1.0, 2.0]}).to_parquet(
         out_dir("e3") / "results.parquet"
     )
+    (out_dir("e3") / "results.meta.json").write_text(json.dumps(ex.provenance(None)))
     calls = []
 
     def run(only: tuple[str, ...]) -> pd.DataFrame:
@@ -205,3 +210,69 @@ def test_noise_aware_crossings_drop_ties_within_the_measured_mad() -> None:
     assert len(phase.crossings(bw, lat, tight)) == 1
     assert phase.crossings(bw, lat, loose) == []
     assert phase.crossings(bw, lat, np.full_like(lat, np.nan)) == []  # unknown noise: no claim
+
+
+def _old_block_bootstrap_ci(losses, blocks, rng, n_boot=2000, level=0.95):  # pre-ADR-0024 copy
+    ids = np.unique(blocks)
+    sums = np.array([losses[blocks == b].sum() for b in ids], dtype=np.float64)
+    counts = np.array([(blocks == b).sum() for b in ids], dtype=np.float64)
+    pick = rng.integers(0, len(ids), size=(n_boot, len(ids)))
+    means = sums[pick].sum(axis=1) / counts[pick].sum(axis=1)
+    lo, hi = np.quantile(means, [(1 - level) / 2, (1 + level) / 2])
+    return float(lo), float(hi)
+
+
+def test_block_bootstrap_ci_matches_the_per_unit_mask_version() -> None:
+    gen = np.random.default_rng(3)
+    losses = gen.random(400)
+    blocks = gen.choice(np.array(["K1", "K2", "KA1", "KI7", "KB3", "x"]), size=400)
+    new = stats.block_bootstrap_ci(losses, blocks, np.random.default_rng(9), n_boot=300)
+    old = _old_block_bootstrap_ci(losses, blocks, np.random.default_rng(9), n_boot=300)
+    assert new == pytest.approx(old, rel=1e-12)  # bincount vs pairwise sum: last-ulp differences
+
+
+def test_nb_p_is_larger_than_plain_p_and_equal_at_zero_ratio() -> None:
+    v = np.array([0.31, 0.27, 0.35, 0.29, 0.33, 0.30])
+    plain = stats.one_sided_p(v, 0.25)
+    assert stats.nb_corrected_one_sided_p(v, 0.25, 0.0) == pytest.approx(plain)
+    assert stats.nb_corrected_one_sided_p(v, 0.25, 0.5) > plain
+    lo = stats.nb_corrected_one_sided_p(-v, -0.25, 0.0, greater=False)
+    assert lo == pytest.approx(stats.one_sided_p(-v, -0.25, greater=False))
+    assert stats.nb_corrected_one_sided_p(np.ones(5), 0.0, 0.3) == 1.0
+
+
+def test_median_se_rule_counts_a_crossing_the_mad_rule_drops() -> None:
+    import pandas as pd
+
+    from kai.bench import experiments as ex
+
+    a, b = REP_IDS[:2]
+    rows = [
+        {"load": 0.0, "bandwidth_bps": bw, "rep_id": r, "latency_ms_measured": m,
+         "latency_ms_mad": 5.0, "latency_ms_model": m}
+        for bw, ms in ((1e5, {a: 100.0, b: 110.0}), (1e6, {a: 110.0, b: 100.0}))
+        for r, m in ms.items()
+    ]  # fmt: skip
+    frame = pd.DataFrame(rows)
+    mad, _ = ex._boundaries(frame, MODEL, None, noise_aware=True)
+    se, _ = ex._boundaries(frame, MODEL, None, median_se_n=25)
+    assert len(mad) == 0
+    assert len(se) == 1
+
+
+def test_median_se_uses_the_delivered_count_per_point_when_stored() -> None:
+    import pandas as pd
+
+    from kai.bench import experiments as ex
+
+    a, b = REP_IDS[:2]
+    rows = [
+        {"load": 0.0, "bandwidth_bps": bw, "rep_id": r, "latency_ms_measured": m,
+         "latency_ms_mad": 5.0, "latency_ms_model": m, "n_delivered": 4}
+        for bw, ms in ((1e5, {a: 100.0, b: 110.0}), (1e6, {a: 110.0, b: 100.0}))
+        for r, m in ms.items()
+    ]  # fmt: skip
+    frame = pd.DataFrame(rows)
+    assert len(ex._boundaries(frame, MODEL, None, median_se_n=25)[0]) == 0  # n=4 widens the SE
+    older = frame.drop(columns="n_delivered")  # older E4 rows: falls back to n_windows
+    assert len(ex._boundaries(older, MODEL, None, median_se_n=25)[0]) == 1

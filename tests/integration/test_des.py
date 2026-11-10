@@ -61,7 +61,7 @@ def test_every_byte_is_accounted_for(bps, sensors, storage, mission, p_audit, bu
     sc = Scenario(trace, 100, load, sensors, storage_bytes=storage, p_audit=p_audit)
     res = simulate(sc, WORK, GreedySafe(MODEL, mission), Certifier(lam=0.05), MODEL)
     assert abs(res.conservation_error) < 1e-6
-    assert res.offered_bytes == pytest.approx(res.wire_bytes.sum())
+    assert res.delivered_bytes == pytest.approx(res.wire_bytes.sum())  # billed when sent
     assert sum(res.flag_rate(f) for f in FLAGS) == pytest.approx(1.0)
     sent = res.rep >= 0
     assert (res.flag[~sent] >= FLAGS.index("deferred")).all()
@@ -99,6 +99,7 @@ def test_same_seed_and_config_give_identical_results() -> None:
         "wire_bytes",
         "disagreed",
         "audited",
+        "audit_fed",
     ):
         assert np.array_equal(getattr(a, name), getattr(b, name), equal_nan=True), name
     assert a.offered_bytes == b.offered_bytes
@@ -133,6 +134,35 @@ def test_outage_defers_then_forwards_raw_and_small_buffers_drop() -> None:
     )
     assert live.flag_rate("deferred") == 0
     assert live.flag_rate("uncertified") + live.flag_rate("dropped") > 0.1
+
+
+def test_deferred_window_is_cached_and_forwarded_as_the_lossless_copy() -> None:
+    sc = Scenario(outage_trace(), deadline_ms=100, n_sensors=1)
+    work = toy_workload(np.random.default_rng(3), 110)
+    raw = simulate(sc, work, GreedySafe(MODEL), CERT, MODEL)
+    ll = simulate(sc, work, GreedySafe(MODEL, defer_rep=1), CERT, MODEL)
+    deferred = ll.flag == FLAGS.index("deferred")
+    assert deferred.sum() > 10
+    assert ll.flag_rate("dropped") == 0
+    done = deferred & np.isfinite(ll.latency_ms)
+    assert done.any()
+    assert (ll.wire_bytes[done] == 1500 + 28).all()  # the lossless payload plus framing
+    assert (raw.wire_bytes[deferred & np.isfinite(raw.latency_ms)] == 2076).all()
+    assert np.array_equal(ll.disagreed[done], work.d[done, 1])  # judged as r1, not raw
+    # the lossless encode is charged to the edge at deferral (raw: only the overhead)
+    assert (ll.edge_ms[deferred] > raw.edge_ms[deferred]).all()
+    assert abs(ll.conservation_error) < 1e-6
+
+
+def test_certified_late_sends_instead_of_deferring_when_the_deadline_cannot_be_met() -> None:
+    sc = Scenario(outage_trace(), deadline_ms=100, n_sensors=1)
+    work = toy_workload(np.random.default_rng(3), 110)
+    base = simulate(sc, work, GreedySafe(MODEL), CERT, MODEL)
+    late = simulate(sc, work, GreedySafe(MODEL, "certified_late"), CERT, MODEL)
+    assert base.flag_rate("deferred") > 0.05
+    assert late.flag_rate("deferred") == 0  # an up link is always sendable
+    assert late.flag_rate("certified") > base.flag_rate("certified")
+    assert abs(late.conservation_error) < 1e-6
 
 
 def test_kai_keeps_the_slo_where_raw_always_collapses() -> None:
@@ -290,3 +320,70 @@ def test_cascade_pays_for_the_probe_only_on_the_windows_where_it_runs() -> None:
     assert np.array_equal(
         res.rep, simulate(fast, work, GreedySafe(MODEL), waveform_free, MODEL).rep
     )
+
+
+def test_audit_feedback_waits_for_the_copy_to_be_delivered() -> None:
+    seen: list[bool] = []
+
+    class Counting(Certifier):
+        def feedback(self, disagreed: bool) -> None:
+            seen.append(disagreed)
+
+    class Bandit:
+        name, overhead = "spy", "none"
+        calls = 0
+
+        def select(self, win, state, truth=None):
+            return Static(2).select(win, state, truth)
+
+        def observe(self, rep: int, disagreed: bool) -> None:
+            self.calls += 1
+
+    work = toy_workload(np.random.default_rng(1), 3)
+    work.d[:, 2] = True
+    sc = Scenario(tr.static(1e3), deadline_ms=100, p_audit=1.0)  # the copy never leaves the queue
+    bandit = Bandit()
+    res = simulate(sc, work, bandit, Counting(lam=1.0), MODEL)
+    assert res.audited.all()
+    assert seen == []
+    assert bandit.calls == 0
+    ok = simulate(replace(sc, trace=tr.static(1e7)), work, bandit, Counting(lam=1.0), MODEL)
+    assert ok.audited.all()
+    assert seen == [True] * 3
+    assert bandit.calls == 3
+    assert ok.audit_fed.all()
+
+
+def test_audit_copy_still_queued_at_the_end_is_unfed_and_counted() -> None:
+    from kai.bench import evaluate as ev
+
+    work = toy_workload(np.random.default_rng(1), 3)
+    work.d[:, 2] = True
+    sc = Scenario(tr.static(1e3), deadline_ms=100, p_audit=1.0)  # the copy never leaves the queue
+    res = simulate(sc, work, Static(2), CERT, MODEL)
+    assert res.audited.all()
+    assert not res.audit_fed.any()
+    cell = ev.Cell("static", 1e3, 100.0, 0.0, 1, 1.0)
+    assert ev.metrics(res, cell, MODEL)["rate_audit_unfed"] > 0
+
+
+def test_cached_window_left_at_the_end_is_not_billed() -> None:
+    sc = Scenario(tr.static(1e3), deadline_ms=100)  # nothing fits: every window is cached
+    res = simulate(sc, toy_workload(np.random.default_rng(3), 20), GreedySafe(MODEL), CERT, MODEL)
+    assert res.backlog_bytes > 0
+    assert res.wire_bytes.sum() == pytest.approx(res.delivered_bytes)
+    assert res.wire_bytes.sum() < res.offered_bytes
+    assert abs(res.conservation_error) < 1e-6
+
+
+def test_audited_decision_pays_the_raw_copy_io_and_encode() -> None:
+    from kai.select.cost import Overheads
+
+    model = replace(MODEL, overheads=replace(MODEL.overheads, t_io_ms=0.5))
+    assert isinstance(model.overheads, Overheads)
+    work = toy_workload(np.random.default_rng(1), 4)
+    sc = Scenario(tr.static(1e7), deadline_ms=100)
+    base = simulate(sc, work, Static(2), Certifier(lam=1.0), model)
+    aud = simulate(replace(sc, p_audit=1.0), work, Static(2), Certifier(lam=1.0), model)
+    extra = 0.5 + model.profiles.t_enc_ms[0]
+    assert np.allclose(aud.edge_ms - base.edge_ms, extra)

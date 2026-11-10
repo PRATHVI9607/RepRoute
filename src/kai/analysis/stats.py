@@ -34,9 +34,9 @@ def block_bootstrap_ci(
     level: float = 0.95,
 ) -> tuple[float, float]:
     """CI of a mean loss when windows inside a block (bearing) are dependent: resample blocks."""
-    ids = np.unique(blocks)
-    sums = np.array([losses[blocks == b].sum() for b in ids], dtype=np.float64)
-    counts = np.array([(blocks == b).sum() for b in ids], dtype=np.float64)
+    ids, inv = np.unique(blocks, return_inverse=True)
+    sums = np.bincount(inv, weights=losses).astype(np.float64)
+    counts = np.bincount(inv).astype(np.float64)
     pick = rng.integers(0, len(ids), size=(n_boot, len(ids)))
     means = sums[pick].sum(axis=1) / counts[pick].sum(axis=1)
     lo, hi = np.quantile(means, [(1 - level) / 2, (1 + level) / 2])
@@ -52,6 +52,22 @@ def one_sided_p(values: np.ndarray, threshold: float, greater: bool = True) -> f
         return 1.0
     alt = "greater" if greater else "less"
     return float(stats.ttest_1samp(values, threshold, alternative=alt).pvalue)
+
+
+def nb_corrected_one_sided_p(
+    values: np.ndarray, threshold: float, test_train_ratio: float, greater: bool = True
+) -> float:
+    """Nadeau–Bengio corrected resampled t-test (ADR 0024, exploratory sensitivity only).
+
+    t = (mean − threshold) / √((1/J + n_test/n_train)·s²), df = J − 1; same zero-spread and
+    non-finite convention as `one_sided_p`. It allows for overlapping training sets only.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    if len(values) < 2 or not np.isfinite(values).all() or np.ptp(values) == 0:
+        return 1.0
+    j = len(values)
+    t = (values.mean() - threshold) / np.sqrt((1 / j + test_train_ratio) * values.var(ddof=1))
+    return float(stats.t.sf(t, j - 1) if greater else stats.t.cdf(t, j - 1))
 
 
 def holm(pvalues: dict[str, float], alpha: float = 0.05) -> dict[str, tuple[float, bool]]:

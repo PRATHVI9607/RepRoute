@@ -185,3 +185,9 @@ def test_a_fold_records_the_recipe_it_was_trained_with(fold_dir) -> None:
     assert stored == FoldConfig(epochs_latent=12, head_trials=3, device="cpu").recipe()
     assert "device" not in stored  # where it ran does not change what was trained
     assert stored != FoldConfig(f_raw="env", epochs_latent=12, head_trials=3).recipe()
+
+
+def test_group_crc_with_no_calibration_units_is_raw_only() -> None:
+    from kai.certify.crc import group_crc_threshold
+
+    assert group_crc_threshold(np.empty(0), np.empty(0, dtype=int), 0.1) == RAW_ONLY

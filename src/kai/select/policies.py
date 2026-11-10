@@ -37,12 +37,14 @@ class GreedySafe:
     mission: Mission = "fidelity_first"
     queue_aware: bool = True
     name: str = "s1_greedy_safe"
+    defer_rep: int = 0  # rep cached for a deferred window (ADR 0025 B); read by the simulator
     overhead: ClassVar[OverheadKind] = "full"
 
     def select(self, win: Window, state: State, truth: Truth | None = None) -> Decision:
         s = state if self.queue_aware else replace(state, backlog_bytes=0.0)
         cost, feasible = self.plan.evaluate(s)
-        return ladder(win.safe, feasible, cost, self.mission)
+        sendable = self.plan.sendable(s) if self.mission == "certified_late" else None
+        return ladder(win.safe, feasible, cost, self.mission, sendable)
 
 
 @dataclass
@@ -106,7 +108,9 @@ class Oracle:
         if truth is None:
             raise ValueError("the oracle needs the ground truth")
         cost, feasible = self.plan.evaluate(truth.state)
-        return ladder(~truth.d, feasible, cost, self.mission)
+        d = ladder(~truth.d, feasible, cost, self.mission)
+        # "certified" is reserved for Kai's per-window certificate; report membership honestly
+        return d if d.rep < 0 else send_anyway(d.rep, win.safe)
 
 
 class MpcSafe:
@@ -130,9 +134,12 @@ class MpcSafe:
         self.plan, self.period_ms, self.horizon, self.mission = plan, period_ms, horizon, mission
         self._wire = plan.profiles.size_bytes + OVERHEAD_BYTES
         self._seqs: dict[tuple[int, ...], np.ndarray] = {}
+        self._seqs_cap = 256
 
     def _sequences(self, members: tuple[int, ...]) -> np.ndarray:
         if members not in self._seqs:
+            if len(self._seqs) >= self._seqs_cap:
+                self._seqs.clear()
             self._seqs[members] = np.array(list(product(members, repeat=self.horizon)))
         return self._seqs[members]
 

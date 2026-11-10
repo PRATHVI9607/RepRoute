@@ -66,3 +66,60 @@ def test_gate_auc_separates_an_informative_predictor_from_noise(rng: np.random.G
     assert informative > 0.9
     assert 0.35 < noise < 0.65
     assert np.isnan(gate_auc(phi, np.zeros((n, 2), bool), groups, ids[:2]))  # no outcome varies
+
+
+def test_run_cell_keeps_the_default_probe_interval_and_passes_the_seed(monkeypatch) -> None:
+    """ADR 0023: a positional `seed` once landed in `Scenario.probe_s`, so every grid cell
+    forwarded cached raw back to back. The grid must use the same 1 s probe as the edge."""
+    from types import SimpleNamespace
+
+    from kai.bench import evaluate as ev
+    from kai.link.des import Scenario
+
+    seen: list[Scenario] = []
+    monkeypatch.setattr(ev, "policies", lambda *a: {"p": lambda: (None, SimpleNamespace(aci=None))})
+    monkeypatch.setattr(ev, "simulate", lambda sc, *a: seen.append(sc))
+    monkeypatch.setattr(ev, "metrics", lambda *a: {})
+    ctx = SimpleNamespace(
+        workload=lambda n: None,
+        window_period_ms=64.0,
+        model=None,
+        ghat_z=None,
+        ghat_sel=None,
+        ghat_d=None,
+        model_edge=None,
+        sizes={},
+        rep_ids=(),
+        committee=(),
+    )
+    cell = ev.Cell("static", 1e6, 100.0, 0.5, 8, 0.05, p_audit=0.02)
+    ev.run_cell(ctx, cell, "fidelity_first", "main", 10, seed=7)
+    (sc,) = seen
+    assert sc.probe_s == Scenario.__dataclass_fields__["probe_s"].default == 1.0
+    assert (sc.seed, sc.p_audit, sc.load, sc.n_sensors) == (7, 0.02, 0.5, 8)
+
+
+def test_a_fold_missing_from_one_policy_is_an_error_not_a_zero_reduction() -> None:
+    """ADR 0023: reuse + add_policies on a larger fold set once turned NaN/NaN into 0.0."""
+    ours = pd.Series([1.0, 2.0, np.nan], index=["f0", "f1", "f2"], name="kai")
+    theirs = pd.Series([2.0, 2.0, 3.0], index=["f0", "f1", "f2"], name="b4")
+    with pytest.raises(ValueError, match="no result in some folds"):
+        ex.fold_reduction(ours, theirs)
+    got = ex.fold_reduction(pd.Series([1.0, 0.0, 1.0]), pd.Series([2.0, 0.0, 0.0]))
+    assert got.tolist() == [0.5, 0.0, -np.inf]  # a zero reference is never dropped
+
+
+def test_reuse_is_refused_without_a_provenance_sidecar(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("KAI_WORK", str(tmp_path))
+    pd.DataFrame({"policy": ["a"], "cost": [1.0]}).to_parquet(ex.out_dir("e3") / "results.parquet")
+    with pytest.raises(ValueError, match="no provenance sidecar"):
+        ex.load_stored(OmegaConf.create({"reuse": True}), "e3")
+
+
+def test_gate_auc_with_one_group_is_nan() -> None:
+    import numpy as np
+
+    from kai.bench.calibrate import gate_auc
+
+    phi, d = np.zeros((6, 2)), np.zeros((6, 3))
+    assert np.isnan(gate_auc(phi, d, np.array(["b"] * 6), ("r0", "r1", "r2")))

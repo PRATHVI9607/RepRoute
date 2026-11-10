@@ -1,0 +1,47 @@
+% Source: docs/theory/limitations.md, plus the items listed in docs/paper/draft.md §8.
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Exchangeability.} The guarantee is for a test window exchangeable with the calibration
+windows. Windows of one unit are autocorrelated, and a new unit may be shifted against the
+calibration units. On Paderborn a fold has five calibration bearings, so at the level that matters,
+the machine, the calibration sample is tiny; the window count overstates the evidence. We report
+per-fold risk with unit-block intervals and treat H2 as an empirical finding across folds, never
+as a theorem about new machines.
+
+\paragraph{What the guarantee covers.} CRC, V0, the static set and the cascade bound the
+\emph{expected} risk, not the risk of one deployment. Only \texttt{certified} decisions are covered,
+counted per offered window; deferred, dropped and uncertified actions are outside the bound, and
+deadline misses are SLO events. ACI and the drift monitor carry no finite-sample guarantee. The
+cascade refuses both, so it has no drift protection; under a suspected shift the per-window
+certificate with the audit loop is the only configuration with a shift response, and that response
+has no finite-sample guarantee.
+
+\paragraph{Agreement is not accuracy.} The certificate controls agreement with $\fraw$. Where
+$\fraw$ is wrong, an agreeing representation is wrong too, and the certificate inherits every
+error of the reference model. On Paderborn that model reaches a macro-F1 of 0.604 on unseen
+bearings.
+
+\paragraph{The Paderborn latent.} \rep{r6} on Paderborn runs $\fraw$'s fixed front-end on the edge;
+its 0.7\,\% disagreement is largely by construction. The generic latents and engineered features do
+not come close on unseen bearings.
+
+\paragraph{Statistics.} The fold is the replication unit; folds of different repeats share test
+units, so fold-level p-values are optimistic. Holm is applied within a dataset, not across
+datasets. Fold-level bootstrap intervals over five folds under-cover. B4 and the profile-table
+baseline screen representations marginally on calibration data and are uncertified. The cascade,
+the static set, group CRC, the log-mel menu, the AUC gate, the non-inferiority test and the
+noise-aware H6 rule were all added after seeing results and are exploratory; none replaces a
+pre-registered verdict.
+
+\paragraph{Group CRC needs units.} Its finite-sample term needs at least $\lceil 1/\alpha\rceil-1$
+calibration units, which Paderborn and HAR do not have at any level and Sleep-EDF has only at
+$\alpha = 0.1$. More units is the only remedy.
+
+\paragraph{Hardware and measurement.} The edge is a development laptop, not a Raspberry Pi, so H4
+is untested where it matters, and H6 and H7 compare the simulator with real sockets on the same
+machine. Energy is modelled. Part of the cellular traces are synthetic; the measured 4G traces are
+downlink throughput, used as an uplink shape. The Sleep-EDF real-socket test replays 60
+windows per link rate. The sensitivity to 32 sensors per node rests on laptop duty-cycle timings.
+Baselines after prior work (AdaEdge, conformal model selection, adaptive thresholds, two-mode
+switching) are conceptual re-implementations adapted to this setting, not the authors' code.

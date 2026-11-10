@@ -1,0 +1,343 @@
+% Every number here is copied from a generated report. Sources per block:
+%   Paderborn: docs/research/results.md        HAR: results-har.md
+%   Speech Commands: results-speechcmd.md      log-mel (exploratory): results-speechcmd-logmel.md
+%   Sleep-EDF: results-sleepedf.md             H6 verdicts of record: updates.md §7 (E4 table, "§6" column)
+% Re-copy at submission time if any report is regenerated.
+\section{Results}
+\label{sec:results}
+
+Unless stated otherwise, results are for the \texttt{metered\_cellular} preset, means over folds,
+with laptop timings and modelled energy. Variants and policies marked \expl{} are exploratory.
+
+\subsection{The menu}
+\label{sec:res-menu}
+
+% src: results.md §E1 table
+Table~\ref{tab:menu} shows the Paderborn menu. The waveform-preserving representations
+(\rep{r0}--\rep{r2b}) are kilobytes and agree with $\fraw$ on nearly every window. Of the compact
+ones, only \rep{r6} follows $\fraw$ on unseen bearings (0.7\,\% disagreement at 16~B); the
+engineered features and the generic latents disagree on 38--48\,\% of windows. This is the
+construction effect of Section~\ref{sec:protocol}: \rep{r6} runs $\fraw$'s front-end.
+% src: updates.md §6 "Reference models on unseen units" (copied from the E1 tables)
+Where \rep{r6} is a generic bottleneck, the closest compact representation is much further from
+the raw decision: \rep{r6} disagrees on 13.7\,\% of windows on HAR, 26.6\,\% on Speech Commands and
+22.9\,\% on Sleep-EDF. On Speech Commands the exploratory log-mel family\expl{} gives 146~B at
+11.4\,\%.
+
+\begin{table}[t]
+\centering
+\caption{Paderborn menu (E1), 15 folds. Disagreement is with $\fraw$ on test bearings; macro-F1 is
+against labels.}
+\label{tab:menu}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Rep. & Bytes & $t_{\mathrm{enc}}$ (ms) & Macro-F1 & Disagr. \\
+\midrule
+\rep{r0} raw       & 8190 & 0.027 & 0.604 & 0 \\
+\rep{r1} lossless  & 5450 & 0.177 & 0.604 & 0 \\
+\rep{r2a} wavelet  & 4210 & 0.976 & 0.604 & 0.005 \\
+\rep{r2b} wavelet  & 2200 & 0.977 & 0.604 & 0.024 \\
+\rep{r3} spectral  & 128  & 0.608 & 0.521 & 0.381 \\
+\rep{r4} summary   & 24   & 0.348 & 0.469 & 0.448 \\
+\rep{r5} AE        & 32   & 0.404 & 0.472 & 0.477 \\
+\rep{r6} bottleneck& 16   & 0.697 & 0.603 & 0.007 \\
+\rep{r7} VQ        & 16   & 0.405 & 0.500 & 0.471 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% src: results.md §E1 bullets and §E8
+The per-window overhead of probe, predictor and selector is 0.62~ms on Paderborn, about 1\,\% of a
+64~ms window period; the greedy selector alone takes 18.2~\textmu s per decision and the MPC
+selector 55--175~\textmu s for horizons three to five. Running the whole reference model on the
+edge would take 0.63~ms and send one byte; the \rep{r6} encoder takes 0.70~ms and sends 16.
+
+\subsection{The certificate}
+\label{sec:res-cert}
+
+% src: E2 tables of the four reports (v0, v0_cascade, v0_static, v0_group rows)
+Table~\ref{tab:cert} reports the safe-set risk on test units for V0, the cascade, the static set
+and group CRC.
+
+\begin{table*}[t]
+\centering
+\caption{Certificate risk on held-out units (E2): mean over folds of the safe-set loss (the worst
+selector inside the set), with the 95\,\% unit-block bootstrap CI for V0 and the number of folds
+within $\alpha$ (descriptive). Group CRC: mean over test units, the quantity it bounds; ``raw''
+means too few calibration units, so the set is raw only. \expl{} exploratory.}
+\label{tab:cert}
+\small
+\begin{tabular}{llrcrrrrrr}
+\toprule
+& & \multicolumn{3}{c}{V0 (pre-registered)} & \multicolumn{2}{c}{Cascade\expl} &
+\multicolumn{2}{c}{Static\expl} & Group\expl \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+Dataset & $\alpha$ & risk & CI & folds & risk & folds & risk & folds & risk \\
+\midrule
+Paderborn & 0.02 & 0.0124 & [0.010, 0.016] & 13/15 & 0.0101 & 15/15 & 0.0102 & 15/15 & raw \\
+          & 0.05 & 0.0386 & [0.029, 0.057] & 12/15 & 0.0187 & 15/15 & 0.0295 & 15/15 & raw \\
+          & 0.1  & 0.0788 & [0.061, 0.110] & 12/15 & 0.0499 & 13/15 & 0.0295 & 15/15 & raw \\
+\midrule
+HAR       & 0.02 & 0.0206 & [0.014, 0.029] & 3/5 & 0.0123 & 5/5 & 0 & 5/5 & raw \\
+          & 0.05 & 0.0490 & [0.040, 0.059] & 3/5 & 0.0251 & 5/5 & 0 & 5/5 & raw \\
+          & 0.1  & 0.104  & [0.086, 0.123] & 3/5 & 0.0490 & 5/5 & 0 & 5/5 & raw \\
+\midrule
+Speech Cmd.& 0.02 & 0.0210 & [0.019, 0.023] & 2/5 & 0.0136 & 5/5 & 0.0069 & 5/5 & 0.0175 \\
+          & 0.05 & 0.0515 & [0.048, 0.055] & 2/5 & 0.0273 & 5/5 & 0.0290 & 5/5 & 0.0496 \\
+          & 0.1  & 0.101  & [0.096, 0.106] & 3/5 & 0.0571 & 5/5 & 0.0456 & 5/5 & 0.101 \\
+\midrule
+Sleep-EDF & 0.02 & 0.0177 & [0.012, 0.026] & 4/5 & 0.0140 & 4/5 & 0.0079 & 5/5 & raw \\
+          & 0.05 & 0.0414 & [0.032, 0.052] & 4/5 & 0.0227 & 4/5 & 0.0414 & 5/5 & raw \\
+          & 0.1  & 0.0838 & [0.072, 0.097] & 4/5 & 0.0602 & 5/5 & 0.0414 & 5/5 & 0.0323 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{V0 lands near $\alpha$.} This is what an expected-risk bound predicts when the bound is
+tight. H2a is met only on Sleep-EDF, and Holm does not reject there (adjusted $p = 1.00$). On
+Paderborn the mean is below $\alpha$ at every level but the bearing-block CI upper bound (0.110)
+fails the $\alpha+0.01$ criterion at $\alpha = 0.1$; on Speech Commands the point risk is just above $\alpha$ at every level; on HAR
+it is above $\alpha$ at $\alpha = 0.1$. The pre-registered one-sided test (mean $< \alpha$) cannot
+reject by design for a method whose expected risk sits at $\alpha$, so H2a cannot be
+\emph{supported} under the registered rule even when the bound holds. H2b fails everywhere: V1 is
+within $\alpha$ in fewer than 90\,\% of folds at some level on every dataset.
+
+% src: E2 "Exchangeability control" bullet of each report
+\paragraph{Exchangeability control.} Calibrated on a random half of the calibration windows and
+tested on the other half (20 halvings), V0's risk is within 0.004 of $\alpha$ on every dataset
+(Paderborn: 0.020, 0.050, 0.099 at $\alpha = 0.02, 0.05, 0.1$; HAR: 0.018, 0.046, 0.098). Where
+the premise holds by construction, the bound is tight. The deviations on test units are consistent
+with unit shift; with five folds they are also within sampling noise.
+
+% src: E2 "H2a non-inferiority" bullet of each report; updates.md §7, fix 4
+\paragraph{Non-inferiority\expl.} A one-sided test of mean V0 risk $< \alpha + 0.01$, with the
+margin fixed before it was computed and outside the Holm family, rejects on Paderborn (maximum $p$
+over $\alpha$ = 0.032) and Speech Commands (0.040), and does not reject on HAR (0.338) or Sleep-EDF
+(0.084). This is consistent with the bound; it is not stronger evidence for it, and the fold
+p-values are optimistic.
+
+% src: E2 tables; updates.md §6 "What it means" (29 of 30 folds)
+\paragraph{The cascade and the static set\expl.} The cascade's mean risk is below $\alpha$ at every
+level on every rerun dataset, 0.019--0.027 at $\alpha = 0.05$; descriptively, 29 of 30 folds over
+the four datasets are within $\alpha$ at $\alpha = 0.05$. The margin is the slack of the
+$\alpha/2 + \alpha/2$ split; the union bound itself only gives an expectation $\le\alpha$. The
+static set is within $\alpha$ in every fold at every level on all four datasets. Its cheapest
+certified payload at $\alpha = 0.05$ is 0.2\,\% of raw on Paderborn (\rep{r6}), 12\,\% on Speech
+Commands, 24\,\% on Sleep-EDF and 84\,\% on HAR: a small fraction of raw only where the menu has a
+compact representation close to $\fraw$.
+
+\paragraph{Group CRC\expl.} With one sample per unit, the method needs 19 calibration units at
+$\alpha = 0.05$ and 9 at $\alpha = 0.1$. Only Speech Commands has enough at every level; there the
+mean over units sits on $\alpha$ (0.0496 at $\alpha = 0.05$, 0.101 at $\alpha = 0.1$). Sleep-EDF has enough only at
+$\alpha = 0.1$ (0.032). Paderborn and HAR have too few at every level, and group CRC returns raw
+only: correct, but it saves nothing.
+
+\subsection{Does per-window choice pay?}
+\label{sec:res-system}
+
+% src: E3 H1 / H3 / kai_s1_auto bullets of each report
+Table~\ref{tab:h3} summarises the scenario-grid comparison (E3; 1296 cells per fold).
+
+\begin{table*}[t]
+\centering
+\caption{Scenario grid (E3). H1: representations that are the oracle's main choice in
+$\ge 10\,\%$ of cells, and B4's cost over the oracle. H3: cost reduction of Kai (S1, V0) against B4
+and SLO reduction against the context-blind selector on bursty traces, with 95\,\% CIs. Negative
+reductions mean Kai is worse. The gated variant\expl{} uses the static set when the predictor's
+unit-grouped CV AUC on \texttt{ptrain} is below 0.55.}
+\label{tab:h3}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+& \multicolumn{2}{c}{H1} & \multicolumn{2}{c}{H3} & Gated\expl \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Dataset & main & B4 / oracle & cost vs B4 & SLO vs B5 & cost vs B4 \\
+\midrule
+Paderborn  & 1 & $-37.2\,\%$ & $-211.1\,\%$ [$-312.7$, $-144.5$] & $+26.1\,\%$ [$+23.0$, $+29.4$] & $-114.9\,\%$ \\
+HAR        & 2 & $+90.8\,\%$ & $+26.4\,\%$ [$+23.3$, $+32.4$] & $+1.7\,\%$ [$+0.6$, $+2.2$] & $+26.4\,\%$ \\
+Speech Cmd.& 1 & $+15.0\,\%$ & $-26.0\,\%$ [$-27.7$, $-24.2$] & $-82.2\,\%$ [$-90.1$, $-72.5$] & $-26.0\,\%$ \\
+Sleep-EDF  & 1 & $+122.0\,\%$ & $-63.3\,\%$ [$-72.3$, $-56.6$] & $+17.8\,\%$ [$+17.1$, $+18.6$] & $-63.3\,\%$ \\
+\midrule
+Thresholds & $\ge 3$ & $\ge +25\,\%$ & $\ge +20\,\%$ & $\ge +30\,\%$ & -- \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{H1 and H3 fail on every dataset.} One compact representation is the oracle's main
+choice in nearly every cell (on Paderborn \rep{r6}, 99.5\,\% of cells). On HAR, Kai is 26.4\,\%
+cheaper than the best single representation, meeting H3(a), but its SLO reduction of 1.7\,\% misses
+H3(b). On Paderborn, Speech Commands and Sleep-EDF Kai costs more than B4.
+
+% src: results.md §E3 policy table and bandwidth breakdown; updates.md §6 "What it means"
+\paragraph{Why.} On Paderborn (mean over $\alpha$ and cells), Kai V0 costs 3.1 times B4
+($9.46\times10^7$ against $3.04\times10^7$ per fold), the cascade 2.0 times and the static set 1.4
+times. Kai holds back 28.6\,\% of windows: their safe set excludes \rep{r6}, the next certified
+options are kilobyte-sized wavelets or raw, these do not reach the cloud before the deadline, and
+each held-back window is priced as an SLO miss (violation rate 0.30 against 0.19 for B4). The
+effect is a slow-link effect: on static links Kai defers 47.8\,\% of windows at 64~kbit/s and
+0.07\,\% at 5~Mbit/s. B4 sends \rep{r6} on those windows anyway, and 22.5\,\% of its frames fall
+outside the safe set. B4 screens representations with a marginal CRC-style check on calibration
+data, but applied to every representation, keeping the cheapest that passes, the check bounds
+nothing (multiple testing): B4 is cheaper and \emph{uncertified}. The certified fixed-choice
+comparator is the static set, which has the fewest SLO misses of all certified policies (0.14).
+
+% src: results.md §E3 kai_s1_auto bullet and gate AUCs; results.md §E5 no_predictor row
+\paragraph{The predictor has little signal on Paderborn.} Its unit-grouped CV AUC on
+\texttt{ptrain} is 0.46--0.57 across folds, and the ablation without a predictor costs 0.33 of
+Kai's total. A gate that falls back to the static set below an AUC of 0.55\expl{} picks the cheaper
+branch on every dataset but three Paderborn folds just above the cut. It does not rescue H3:
+where V0 lost to B4, both branches lose.
+
+% src: results.md §E3 "other price presets" table
+\paragraph{Other prices\expl.} Pricing energy, edge CPU time or lateness instead of bytes does not
+change the answer on Paderborn: Kai V0 and the cascade cost more than B4 under all four presets.
+
+\subsection{Ablations: encode cost and heterogeneity}
+\label{sec:res-ablation}
+
+% src: E5 H4 / H5 bullets of each report; results.md §E5 "× 8"
+\paragraph{H4 fails everywhere.} Ignoring encode cost changes the main choice in 0.2\,\% of
+high-load cells on Paderborn, 0.0\,\% on HAR, 2.9\,\% on Speech Commands and 2.4\,\% on Sleep-EDF,
+against a threshold of 15\,\%. With edge CPU times multiplied by eight, a modelled slower edge, it
+is 0.8\,\% on Paderborn. Encoders take below a millisecond on the laptop, so load rarely changes
+the choice. Only a run on a Pi-class edge can test H4 as intended.
+
+\paragraph{H5 depends on the menu.} The full menu's cost reduction against the best single-family
+controller is $+5.8\,\%$ on Paderborn, $+10.9\,\%$ on HAR (met, Holm-adjusted $p = 1.00$),
+$+5.0\,\%$ on Speech Commands and $+21.0\,\%$ on Sleep-EDF (supported, CI [$+16.3$, $+23.3$]).
+With the exploratory log-mel family on Speech Commands\expl{} it is $+15.9\,\%$ (CI [$+15.4$,
+$+16.9$]), passing the threshold and the Holm test; it is a second family on the same speakers,
+built after seeing the first run, and not confirmatory. A mixed menu pays where it holds a small
+representation close to the raw decision.
+
+\subsection{Theory and reality}
+\label{sec:res-real}
+
+% src: E7 / E7d bullets of each report; ADR 0021 (Sleep-EDF replays 60 windows per rate)
+\paragraph{H7: the simulator.} Table~\ref{tab:h7} compares the DES with the real-socket runtime on
+the same bundle, workload and scenario. The p50 latency gap is within 10\,\% on Paderborn, HAR and
+Sleep-EDF and in Docker; it is 12.5\,\% on Speech Commands, which fails. The chosen representation
+agrees on at least 98.7\,\% of windows everywhere. The Sleep-EDF run replays 60 windows per link
+rate instead of 300, to cap real time.
+
+\begin{table}[t]
+\centering
+\caption{Sim-to-real (H7): worst p50 latency gap over link rates and lowest agreement of the chosen
+representation. Thresholds: $\le 10\,\%$ and $\ge 85\,\%$.}
+\label{tab:h7}
+\small
+\begin{tabular}{llrr}
+\toprule
+Dataset & Backend & p50 gap & Agreement \\
+\midrule
+Paderborn  & loopback & 4.2\,\%  & 100.0\,\% \\
+Paderborn  & Docker + netem & 1.0\,\% & 100.0\,\% \\
+HAR        & loopback & 5.6\,\%  & 100.0\,\% \\
+Speech Cmd.& loopback & 12.5\,\% & 98.7\,\% \\
+Speech Cmd. + log-mel\expl & loopback & 8.8\,\% & 97.7\,\% \\
+Sleep-EDF  & loopback & 6.1\,\%  & 100.0\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% src: updates.md §7 E4 table ("§6" column = verdict of record) and fix 3; results*.md §E4
+\paragraph{H6: closed-form boundaries.} H6 fails on every dataset in its pre-registered run. The
+closed form predicts few boundaries, while the measured argmin changes many times among compact
+representations whose latencies differ by less than the measurement noise; on Paderborn 5 of 16
+measured changes matched a predicted boundary, the worst with a relative error of 8716\,\%. A later
+re-measurement, triggered by an exploratory fix, met the threshold on Speech Commands; a verdict
+that changes between measurements of the same thing is not counted as met, and the verdict of
+record stays the pre-registered run. Under a stricter rule\expl{} that counts a measured change
+only when the latency gap exceeds twice the combined MAD at both grid points, no change survives on
+any dataset. That rule is biased towards ``tied'', so this does not show that H6 cannot be tested;
+a rule based on the standard error of the median, or a finer bandwidth grid, was not tried.
+
+\subsection{Shift and drift}
+\label{sec:res-drift}
+
+% src: results.md §E6
+On Paderborn at $\alpha = 0.05$, holding bearings out (L1), the safe-set risk with the static
+threshold is 0.052; also holding one operating condition out (L2), it is 0.129. The certificate
+does not survive a condition shift. The realised risk of the greedy policy is far lower (0.007 and
+0.010), and audit-in-the-loop ACI keeps it at 0.007 and 0.009, sending 187~B and 376~B per window
+against 206~B and 455~B for the static threshold (audit copies: 142--147~B per window). ACI tracks
+realised risk and has no finite-sample guarantee. The probe-feature monitor fires on 97\,\% of test
+windows under L1 and 89\,\% under L2: it detects that test bearings differ from calibration
+bearings even without a condition shift. As a safe-mode trigger it would switch every new machine
+to raw.
+
+\subsection{Privacy\expl}
+\label{sec:res-privacy}
+
+% src: results.md §E10
+No hypothesis was registered for this probe. A logistic-regression attacker on what the cloud
+decodes from \rep{r6} re-identifies a seen bearing with accuracy 0.589 (chance 0.18 on average) and
+recognises the operating condition of an unseen machine with 0.338 (chance 0.25). A compact payload
+hides the waveform, not the machine's identity or operating point.
+
+\subsection{Icentia11k}
+\label{sec:res-icentia}
+
+% src: results-icentia.md (all numbers in this subsection)
+Icentia11k~\cite{tan2019icentia} is single-lead ambulatory ECG at 250\,Hz: the first segment of 980
+patients, cut into 16.4\,s windows labelled V, S or N by the beats they hold. The patient is the
+unit: five leave-patients-out folds with 194 calibration patients each, enough for group CRC at
+every $\alpha$. It ran after every rule of ADR~0022 was fixed, and from E3 on with the corrected
+simulator (ADR~0023), so its E3 and E5 numbers are not comparable with the earlier-simulator
+numbers above. Its data was touched by the October dataset screening, so it is the
+closest-to-unseen test available, not a confirmatory one. $\fraw$ (the waveform network, chosen by
+inner cross-validation as in Section~\ref{sec:protocol}) reaches macro-F1 0.641 on unseen patients
+(majority baseline 0.257).
+
+\emph{Certificate.} V0's mean safe-set risk over folds is 0.0212, 0.0477 and 0.0934 at
+$\alpha = 0.02, 0.05, 0.1$; each block-bootstrap CI contains $\alpha$. H2a is not supported: as on
+every dataset, its one-sided test cannot reject when the risk lands at $\alpha$. The exploratory non-inferiority test (margin 0.01) rejects (maximum
+$p = 0.041$). The exchangeability control lands at 0.020, 0.050 and 0.101. V1 has 4 of 5 folds
+within $\alpha$, so H2b fails. Group CRC\expl{} averages 0.0172, 0.0458 and 0.0922 over test
+patients; the cascade\expl{} has 0.0132, 0.0279 and 0.051 per fold and lies within $\alpha$ in all
+five folds.
+
+\emph{Cost.} The oracle picks \rep{r6} in every cell, so H1 fails (one representation; best-single
+costs 120\,\% more than the oracle). H3 fails: Kai (S1, V0) costs 145\,\% more than best-single
+(95\,\% CI of the reduction $[-180\,\%, -130\,\%]$), and on bursty traces it has 77\,\% more SLO
+violations than the context-blind baseline. In the exploratory static-link breakdown (nodes with
+fewer than 32 sensors), Kai is cheaper than best-single from 1\,Mb/s up and loses below it, where it defers 24--44\,\% of windows
+because nothing in their safe set fits the link. Best-single defers none and is uncertified. H5 is
+supported: the full menu costs 18.9\,\% less than the best single family (CI $[17.1\,\%, 21.2\,\%]$,
+Holm $p = 0.006$; exploratory Nadeau--Bengio Holm $p = 0.028$). H4 fails (0\,\% of high-load
+cells change choice).
+
+\emph{Timing.} H6 fails: 1 of 15 measured argmin changes matches one of the 2 predicted boundaries,
+with relative error 811\,\%. Under the MAD rule\expl{} (ADR~0022) 0 of 1 change matches, and
+under the median-SE rule\expl{} (ADR~0024) 0 of 3. Inside the waveform family\expl, 2 of 4
+predicted boundaries match, worst error 62\,\%. H7 meets its threshold: worst p50 gap 2.5\,\%,
+representation agreement 100\,\%, over loopback on the same laptop. In the privacy
+probe\expl{}, an attacker on \rep{r6} re-identifies a seen patient with accuracy 0.031 (chance
+0.010 on average), against 0.751 on the raw window's band-energy shape.
+
+\subsection{Summary of verdicts}
+
+% src: updates.md §6 "Hypothesis verdicts"; H6 per updates.md §7; Icentia: results-icentia.md
+\begin{table}[t]
+\centering
+\caption{Pre-registered verdicts. S = supported (threshold met and Holm rejects), M = threshold met
+only, -- = not met. Log-mel\expl{} is exploratory. Icentia ran on the corrected simulator
+(ADR~0023) from E3 on.}
+\label{tab:verdicts}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+& Pad. & HAR & Speech & +log-mel\expl & Sleep & Icentia \\
+\midrule
+H1 diversity        & -- & -- & -- & -- & -- & -- \\
+H2a V0 risk         & -- & -- & -- & -- & M  & -- \\
+H2b V1 folds        & -- & -- & -- & -- & -- & -- \\
+H3 adaptation       & -- & -- & -- & -- & -- & -- \\
+H4 encode cost      & -- & -- & -- & -- & -- & -- \\
+H5 heterogeneity    & -- & M  & -- & S  & S  & S \\
+H6 break-evens      & -- & -- & -- & -- & -- & -- \\
+H7 sim-to-real      & M  & M  & -- & M  & M  & M \\
+\bottomrule
+\end{tabular}
+\end{table}

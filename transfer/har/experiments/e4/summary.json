@@ -1,24 +1,40 @@
 {
  "n_boundaries_measured": 11,
- "n_boundaries_matched": 5,
+ "n_boundaries_matched": 2,
  "n_boundaries_theory": 2,
- "max_rel_error": 39.79496865610296,
- "median_latency_model_error": 0.45279779299283895,
+ "max_rel_error": 32.45242930229692,
+ "median_latency_model_error": 0.4209787750625484,
  "n_cells_unmeasured": 0,
  "boundaries": [
   {
    "load": 0.0,
    "low": "r7_vq",
    "high": "r6_bottleneck",
-   "bps_measured": 1206181.5671088393,
+   "bps_measured": 1264693.0138392067,
    "bps_theory": 648331.4918918065,
-   "rel_error": 0.8604395778913155
+   "rel_error": 0.9506888523167074
+  },
+  {
+   "load": 0.0,
+   "low": "r6_bottleneck",
+   "high": "r4_summary",
+   "bps_measured": 1797835.2257855553,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.0,
+   "low": "r4_summary",
+   "high": "r6_bottleneck",
+   "bps_measured": 3498875.473309015,
+   "bps_theory": null,
+   "rel_error": NaN
   },
   {
    "load": 0.0,
    "low": "r6_bottleneck",
    "high": "r7_vq",
-   "bps_measured": 2668187.9585349727,
+   "bps_measured": 14671209.603756888,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -26,55 +42,15 @@
    "load": 0.0,
    "low": "r7_vq",
    "high": "r6_bottleneck",
-   "bps_measured": 8809431.523698859,
+   "bps_measured": 21688263.396963343,
    "bps_theory": 648331.4918918065,
-   "rel_error": 12.587850711976484
-  },
-  {
-   "load": 0.0,
-   "low": "r6_bottleneck",
-   "high": "r7_vq",
-   "bps_measured": 11568212.762683379,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.0,
-   "low": "r7_vq",
-   "high": "r6_bottleneck",
-   "bps_measured": 26448662.890490714,
-   "bps_theory": 648331.4918918065,
-   "rel_error": 39.79496865610296
-  },
-  {
-   "load": 0.8,
-   "low": "r7_vq",
-   "high": "r6_bottleneck",
-   "bps_measured": 95743.71492463496,
-   "bps_theory": 648331.4918918002,
-   "rel_error": 0.8523228994395146
-  },
-  {
-   "load": 0.8,
-   "low": "r6_bottleneck",
-   "high": "r5_ae",
-   "bps_measured": 127930.81674198648,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.8,
-   "low": "r5_ae",
-   "high": "r7_vq",
-   "bps_measured": 232709.6580517995,
-   "bps_theory": null,
-   "rel_error": NaN
+   "rel_error": 32.45242930229692
   },
   {
    "load": 0.8,
    "low": "r7_vq",
    "high": "r4_summary",
-   "bps_measured": 803135.5348905413,
+   "bps_measured": 131597.43733073128,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -82,53 +58,53 @@
    "load": 0.8,
    "low": "r4_summary",
    "high": "r7_vq",
-   "bps_measured": 2790935.9893308864,
+   "bps_measured": 235057.04553010254,
    "bps_theory": null,
    "rel_error": NaN
   },
   {
    "load": 0.8,
    "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 1265065.773020586,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
    "high": "r6_bottleneck",
-   "bps_measured": 3645891.7924755635,
-   "bps_theory": 648331.4918918002,
-   "rel_error": 4.623499456793354
+   "bps_measured": 2073719.0847989758,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r6_bottleneck",
+   "high": "r7_vq",
+   "bps_measured": 12834450.829915661,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r5_ae",
+   "bps_measured": 24369839.876838963,
+   "bps_theory": null,
+   "rel_error": NaN
   }
  ],
  "family/n_theory": 2,
- "family/n_measured": 7,
- "family/n_matched": 1,
- "family/max_rel_error": 1.0535124029350682,
+ "family/n_measured": 5,
+ "family/n_matched": 0,
+ "family/max_rel_error": NaN,
  "family_boundaries": [
   {
    "load": 0.0,
    "low": "r2b_wavelet",
-   "high": "r2a_wavelet",
-   "bps_measured": 2090784.707973897,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.0,
-   "low": "r2a_wavelet",
-   "high": "r0_raw",
-   "bps_measured": 9457098.785049189,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.0,
-   "low": "r0_raw",
    "high": "r1_lossless",
-   "bps_measured": 14213483.969709896,
-   "bps_theory": null,
-   "rel_error": NaN
-  },
-  {
-   "load": 0.0,
-   "low": "r1_lossless",
-   "high": "r0_raw",
-   "bps_measured": 19957184.396000635,
+   "bps_measured": 15014132.965560319,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -136,7 +112,7 @@
    "load": 0.8,
    "low": "r2b_wavelet",
    "high": "r2a_wavelet",
-   "bps_measured": 639468.3234464963,
+   "bps_measured": 721948.8507597393,
    "bps_theory": null,
    "rel_error": NaN
   },
@@ -144,25 +120,55 @@
    "load": 0.8,
    "low": "r2a_wavelet",
    "high": "r2b_wavelet",
-   "bps_measured": 1444809.7092466904,
+   "bps_measured": 1201160.5834579607,
    "bps_theory": null,
    "rel_error": NaN
   },
   {
    "load": 0.8,
    "low": "r2b_wavelet",
+   "high": "r2a_wavelet",
+   "bps_measured": 2968067.327827699,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r2a_wavelet",
    "high": "r0_raw",
-   "bps_measured": 12222020.349203845,
-   "bps_theory": 5951763.588929394,
-   "rel_error": 1.0535124029350682
+   "bps_measured": 9179237.43622848,
+   "bps_theory": null,
+   "rel_error": NaN
   }
  ],
- "latency_model_bias/load0": -0.5347824590437432,
- "latency_model_bias/load0.8": -0.35283480465256967,
+ "latency_model_bias/load0": -0.517223754145824,
+ "latency_model_bias/load0.8": -0.33517049190328574,
  "H6_pass": false,
  "H6_noise_aware/n_measured": 0,
  "H6_noise_aware/n_matched": 0,
  "H6_noise_aware/max_rel_error": NaN,
  "H6_noise_aware/pass": false,
- "H6_noise_aware/boundaries": []
+ "H6_noise_aware/boundaries": [],
+ "H6x/median_se/changes": 2,
+ "H6x/median_se/matched": 0,
+ "H6x/median_se/worst_rel_error": NaN,
+ "H6x/median_se/threshold_met": false,
+ "H6x/median_se/boundaries": [
+  {
+   "load": 0.8,
+   "low": "r7_vq",
+   "high": "r4_summary",
+   "bps_measured": 131597.43733073128,
+   "bps_theory": null,
+   "rel_error": NaN
+  },
+  {
+   "load": 0.8,
+   "low": "r4_summary",
+   "high": "r7_vq",
+   "bps_measured": 235057.04553010254,
+   "bps_theory": null,
+   "rel_error": NaN
+  }
+ ]
 }

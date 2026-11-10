@@ -1,0 +1,114 @@
+% Sources: unit counts from the split manifests (data/splits/pu-v1_L1_*.json,
+% transfer/<name>/data/splits/*L1*.json, fold 0); raw bytes, window periods and f_raw macro-F1
+% from results*.md §E1; hypotheses from docs/research/hypotheses.md; ADR 0006 for EnvNet and R6.
+\section{Experimental Protocol}
+\label{sec:protocol}
+
+\subsection{Datasets and splits}
+
+Table~\ref{tab:datasets} lists the four datasets rerun with the final code. Every split leaves
+whole units out: each fold assigns units to \texttt{train}, \texttt{ptrain}, \texttt{calib} and
+\texttt{test}, and no unit is in two partitions. Paderborn~\cite{lessmeier2016paderborn} uses three
+repeats of five bearing-disjoint folds (15 folds); the other datasets use five folds. Three further
+datasets (HUST, UORED and PTB-XL~\cite{wagner2020ptbxl}) were run with earlier code, before the
+fixes of the final rerun; they are reported for completeness
+\ifarxiv in Appendix~\ref{app:earlier}\else in the extended version\fi{} and are not comparable
+number for number. HAR, Speech Commands and Sleep-EDF were chosen by a screening that read their
+own data, so they are not independent confirmations of the Paderborn results.
+
+\begin{table*}[t]
+\centering
+\caption{Datasets rerun with the final code. Units per partition are for one fold
+(train / ptrain / calib / test). Macro-F1 of $\fraw$ is on test units, mean over folds; the
+majority-class predictor's macro-F1 is in brackets.}
+\label{tab:datasets}
+\begin{tabular}{lllrrrl}
+\toprule
+Dataset & Task & Unit & Units per partition & Raw bytes & Period (ms) & $\fraw$ macro-F1 \\
+\midrule
+Paderborn~\cite{lessmeier2016paderborn} & bearing state, 3 classes & bearing & 11 / 5 / 5 / 8 & 8192 & 64 & 0.604 (0.184) \\
+HAR (HAPT)~\cite{reyesortiz2016hapt} & activity, 6 classes & person & 12 / 6 / 6 / 6 & 512 & 5120 & 0.779 (0.053) \\
+Speech Commands~\cite{warden2018speech} & keyword, 10 classes & speaker & 997 / 498 / 498 / 499 & $3.28\times10^4$ & 1024 & 0.917 (0.018) \\
+Sleep-EDF~\cite{kemp2000sleepedf} & sleep stage, 5 classes & subject & 32 / 15 / 15 / 16 & $6.14\times10^3$ & 30\,000 & 0.672 (0.105) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Reference models}
+
+Each $\fraw$ family was chosen by inner cross-validation on the training units of one fold and
+frozen before any calibration or test partition was evaluated with it; every candidate is recorded.
+Those units are test units in other folds, so the choice of family is not nested and test macro-F1
+is slightly optimistic; within each fold the model itself is fitted on that fold's training units
+only. On Paderborn it
+is EnvNet: a fixed envelope-spectrum front-end of 96 values with no parameters, followed by a
+standardised multinomial logistic regression. Larger models did not transfer across bearings. On
+the other datasets the inner search chose a one-dimensional residual convolutional network on the
+waveform. All reference models pass the gate fixed before evaluation (macro-F1 $\ge 0.40$ on test
+units; Table~\ref{tab:datasets}).
+
+\subsection{The representation menu}
+
+The menu has nine representations: raw (\rep{r0}); delta plus zstd lossless (\rep{r1}); two
+bounded-lossy wavelet codecs (\rep{r2a}, \rep{r2b}); engineered spectral features (\rep{r3},
+128~B); a statistical summary (\rep{r4}, 24~B); a task-agnostic autoencoder latent (\rep{r5},
+32~B); a supervised bottleneck (\rep{r6}, 16~B); and a vector-quantised latent (\rep{r7}). Feature
+and latent heads are standardised logistic regressions or LightGBM models chosen with the same
+search budget. An exploratory second menu adds two coarse log-mel representations (\rep{r10a},
+258~B; \rep{r10b}, 146~B) with a small convolutional head on Speech Commands\expl.
+
+\paragraph{What the 16-byte latent is on Paderborn.} On Paderborn, \rep{r6} is $\fraw$'s fixed
+front-end followed by a learned 16-value projection. The edge therefore computes the reference
+model's features, which is close to classifying on the edge, and \rep{r6} agrees with $\fraw$
+largely by construction. A generic 16-byte latent could not follow EnvNet on unseen bearings. Any
+statement that 16 bytes are ``sufficient'' on Paderborn must be read as ``the edge ran the cloud
+model's feature extraction''. On HAR, Speech Commands and Sleep-EDF, \rep{r6} is a generic
+supervised bottleneck that does not share $\fraw$'s front-end.
+
+\subsection{Pre-registered hypotheses}
+
+Table~\ref{tab:hypotheses} lists the seven hypotheses, frozen before any evaluation experiment was
+run on Paderborn. Every later addition is logged with what had been seen before it; none changed a
+metric, threshold or definition. A tested hypothesis (H1, H2a, H3, H5) is \emph{supported} only if
+its threshold is met \emph{and} a Holm--Bonferroni procedure at family-wise level 0.05 over the
+eight hypotheses rejects its null; we call it \emph{met} when only the threshold is reached. H2b,
+H4, H6 and H7 have no replication unit and are descriptive; they enter the Holm family with
+$p = 1$.
+
+\begin{table*}[t]
+\centering
+\caption{Pre-registered hypotheses (abridged; full definitions in the released protocol).}
+\label{tab:hypotheses}
+\small
+\begin{tabular}{lp{0.44\textwidth}p{0.32\textwidth}}
+\toprule
+ID & Statement and metric & Threshold \\
+\midrule
+H1 & Diversity: number of representations that are the oracle's main choice in $\ge 10\,\%$ of
+cells; cost of the best single representation (B4) over the oracle & $\ge 3$ and $\ge +25\,\%$ \\
+H2a & V0 controls safe-set risk on held-out units: mean over folds and bearing-block bootstrap CI
+& mean $\le \alpha$, CI upper bound $\le \alpha + 0.01$, every $\alpha \in \{0.02, 0.05, 0.1\}$ \\
+H2b & V1 ($\delta = 0.1$) holds in most folds & $\ge 90\,\%$ of folds within $\alpha$ \\
+H3 & Adaptation value: Kai (S1, V0) total cost against B4; SLO violations against a
+context-blind selector on bursty traces & $\ge 20\,\%$ and $\ge 30\,\%$ reduction \\
+H4 & Encode cost matters: share of high-load cells whose main choice changes when the planner
+ignores encode cost; that planner misses more deadlines & $\ge 15\,\%$ and more misses \\
+H5 & Heterogeneity pays: full menu against the best single-family controller at $\alpha = 0.05$
+& $\ge 10\,\%$ cost reduction \\
+H6 & Closed-form break-even bandwidths locate the measured boundaries (real sockets) & every
+matched boundary within $20\,\%$, at least one matched \\
+H7 & The simulator reproduces the real runtime: p50 latency gap and agreement of the chosen
+representation & gap $\le 10\,\%$, agreement $\ge 85\,\%$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Statistics}
+
+The replication unit is the fold, as pre-registered. One-sided t-tests over folds give the
+p-values. Folds of different repeats share test units, so these p-values are optimistic. Holm is
+applied within one dataset, never across datasets. Confidence intervals on certificate risk
+resample whole units (a bearing tested in several folds is one block). Per-fold bootstrap intervals
+over five folds under-cover and should be read as rough. We report effect sizes and intervals for
+every hypothesis whatever the test outcome. Edge timings are from a development laptop; energy is
+modelled, never measured.

@@ -155,3 +155,13 @@ def test_only_certified_audits_reach_the_certifier() -> None:
     asyncio.run(main())
     assert fed == [True]
     assert edge.records[2]["disagreed"] == 1  # still recorded, just not fed back
+
+
+def test_load_reads_the_core_the_edge_runs_on(monkeypatch) -> None:
+    import psutil
+
+    edge = object.__new__(Edge)
+    edge.cfg = EdgeConfig()
+    monkeypatch.setattr(psutil.Process, "cpu_num", lambda self: 2)
+    monkeypatch.setattr(psutil, "cpu_percent", lambda interval=None, percpu=False: [5.0, 6.0, 40.0])
+    assert edge._load() == pytest.approx(0.4)

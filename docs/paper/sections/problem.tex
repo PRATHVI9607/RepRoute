@@ -1,0 +1,53 @@
+% Terms as in docs/glossary.md; bounded quantity as in docs/theory/proposition1.md.
+\section{Problem and Definitions}
+\label{sec:problem}
+
+A \emph{window} $x$ is a fixed number of consecutive samples from one sensor channel. The cloud
+runs a \emph{reference model} $\fraw$ trained on raw windows; its decision on $x$ is the reference
+for everything we certify. A \emph{menu} holds $K$ representations $r_0,\dots,r_{K-1}$; $r_0$ is
+raw. Each representation is an edge encoder $e_r$ and a cloud head $h_r$, and the cloud's decision
+on representation $r$ is $\hat y_r(x) = h_r(e_r(x))$.
+
+\begin{definition}[Decision-agreement loss]
+$d_r(x) = \1[\hat y_r(x) \neq \fraw(x)] \in \{0,1\}$, with $d_{r_0} \equiv 0$.
+\end{definition}
+
+This loss measures agreement with the raw-data decision, not correctness: where $\fraw$ is wrong,
+a representation that agrees with it is ``sufficient'' and wrong too. We report the label fidelity
+(macro-F1 against ground truth) of every representation beside its agreement, and never certify it.
+
+A \emph{probe} $\phi(x)$ of 20 cheap features is computed for every window. A \emph{sufficiency
+predictor} $\gh_r(\phi) \in [0,1]$, one per representation with $\gh_{r_0} = 0$, estimates
+$P(d_r = 1 \mid \phi)$. It is fitted on a partition (\texttt{ptrain}) disjoint from the
+calibration and test partitions.
+
+\begin{definition}[Safe set and safe-set loss]
+For a threshold $\lambda$,
+$\Sset(x) = \{r_0\} \cup \{r : \gh_r(\phi(x)) \le \lambda\}$ and
+$L(x;\lambda) = \max_{r \in \Sset(x)} d_r(x)$.
+\end{definition}
+
+$L(x;\lambda) = 1$ if \emph{any} member of the safe set disagrees with the raw decision, so it is
+the loss of the worst selector inside the set. Raw is always a member.
+
+A \emph{selector} $\pi$ sees the safe set and the system state $z$ (bandwidth estimate, round-trip
+time, backlog, edge load, remaining deadline) and returns one action. Every action carries a
+\emph{flag}: \texttt{certified} (a member of the safe set is sent), \texttt{deferred} (raw is
+cached and retried later), \texttt{uncertified} (a representation outside the safe set is sent
+to meet the deadline) or \texttt{dropped}. Only \texttt{certified} decisions are covered by the
+guarantee. A window that is late, deferred or dropped is a service-level (SLO) event; it is never
+counted as a disagreement.
+
+\paragraph{The bounded quantity.} The guarantee is on
+\begin{equation}
+  \E\bigl[d_{\pi(x,z)}(x)\cdot \1\{C\}\bigr], \qquad C = \{\pi(x,z) \in \Shat(x)\},
+  \label{eq:bounded}
+\end{equation}
+per \emph{offered} window. It is not a bound on the disagreement rate among certified decisions,
+$\E[d_\pi \mid C]$, which divides by $P(C)$ and can exceed $\alpha$ when few decisions are
+certified. We report both.
+
+\paragraph{Partitions.} Units (bearings, people, speakers, subjects) are split into four disjoint
+partitions: \texttt{train} (reference model, encoders and heads), \texttt{ptrain} (sufficiency
+predictor), \texttt{calib} (the threshold $\lh$) and \texttt{test}. No unit is in two partitions.
+Random-window splits are not used anywhere.

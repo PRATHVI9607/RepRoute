@@ -24,7 +24,7 @@ from kai.select.cost import CostModel, State
 
 
 @dataclass(frozen=True)
-class Scenario:
+class Scenario:  # build with keywords after the first two fields (ADR 0023)
     trace: Trace
     deadline_ms: float
     load: float = 0.0  # edge CPU load ρ from other tenants
@@ -61,6 +61,7 @@ class Result:
     wire_bytes: np.ndarray  # [n] bytes put on the link for this window (payload + frame + audit)
     disagreed: np.ndarray  # [n] bool: the transmitted decision differs from the raw decision
     audited: np.ndarray  # [n] bool
+    audit_fed: np.ndarray  # [n] bool: the audit copy was delivered, so the edge heard back
     probed: np.ndarray  # [n] bool: False when a cascade served the window from its free set
     offered_bytes: float = 0.0
     delivered_bytes: float = 0.0
@@ -84,6 +85,8 @@ class _Frame:
     nbytes: float
     live: bool  # False for audit copies and store-and-forward traffic
     enqueued_s: float = 0.0
+    # audit copies: (rep audited, did it disagree with raw, was it certified); learnt on delivery
+    audit: tuple[int, bool, bool] | None = None
 
 
 def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: kept in one scope
@@ -108,6 +111,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
         wire_bytes=np.zeros(n),
         disagreed=np.zeros(n, bool),
         audited=np.zeros(n, bool),
+        audit_fed=np.zeros(n, bool),
         probed=np.ones(n, bool),
     )
     arrived = np.zeros(n)
@@ -130,6 +134,11 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
         actual.overheads.total_ms / (1.0 - scenario.load) ** actual.overheads.load_exponent
     )
     edge_ms = actual.edge_time_ms(scenario.load)
+    # the raw audit copy is encoded and framed after the live frame is out (runtime.send_rep)
+    audit_copy_ms = float(
+        actual.overheads.io_ms(scenario.load)
+        + actual.profiles.t_enc_ms[0] / (1.0 - scenario.load) ** actual.profiles.load_exponent[0]
+    )
     # a cascade selector skips the probe and predictor on windows its free set can serve
     pre_select = getattr(selector, "select_without_scores", None)
     cheap = truth_model.for_policy("select")
@@ -140,6 +149,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
     n_reps = len(truth_model.profiles.rep_ids)
     cloud_ms = truth_model.profiles.t_dec_ms + truth_model.profiles.t_head_ms
     raw_wire = float(truth_model.profiles.size_bytes[0]) + OVERHEAD_BYTES
+    defer_rep = getattr(selector, "defer_rep", 0)  # ADR 0025 B: cache this rep, not raw
     observe = getattr(selector, "observe", None)  # learning baselines hear about audited decisions
 
     def track_queue(delta: int) -> None:
@@ -152,14 +162,13 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
         frame.enqueued_s = env.now
         queue.append(frame)
         res.offered_bytes += frame.nbytes
-        res.wire_bytes[frame.window] += frame.nbytes
         track_queue(+1)
         if not wake.triggered:
             wake.succeed()
 
     def link_recovered() -> bool:
-        """Forward cached raw only if it fits between two arrivals, or as a periodic probe."""
-        fits = raw_wire * 8.0 / est.last_bps <= gap_s
+        """Forward the cached head frame only if it fits between two arrivals, or as a probe."""
+        fits = deferred[0].nbytes * 8.0 / est.last_bps <= gap_s
         return fits or env.now - last_tx_end >= scenario.probe_s
 
     def backlog_seen() -> float:
@@ -174,7 +183,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
             yield cpu_queue.put(i)
             yield env.timeout(gap_s)
 
-    def cpu():
+    def cpu():  # noqa: PLR0912
         nonlocal backlog, deferred_bytes
         for _ in range(n):
             i = yield cpu_queue.get()
@@ -193,7 +202,12 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 win = Window(certifier.safe_set(ghat, work.phi[i]), ghat, work.phi[i])
                 truth = Truth(work.d[i], replace(state, bandwidth_bps=scenario.trace.rate(env.now)))
                 dec = selector.select(win, state, truth)
-                res.edge_ms[i] = edge_ms[dec.rep] if dec.rep != NO_REP else overhead_ms
+                if dec.rep != NO_REP:
+                    res.edge_ms[i] = edge_ms[dec.rep]
+                elif dec.flag == "deferred" and defer_rep != 0:
+                    res.edge_ms[i] = edge_ms[defer_rep]  # the cached copy is encoded now
+                else:
+                    res.edge_ms[i] = overhead_ms
             else:
                 res.probed[i] = False
                 res.edge_ms[i] = cheap_edge_ms[dec.rep] if dec.rep != NO_REP else cheap_overhead_ms
@@ -206,29 +220,39 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 backlog += nbytes
                 enqueue(live, _Frame(i, nbytes, live=True))
                 if audit.should_audit():
+                    certified = dec.flag == "certified"
+                    disagreed = bool(work.d[i, dec.rep])
                     # ACI tracks the risk of certified decisions only; uncertified sends are
                     # outside the certificate.
-                    if dec.flag == "certified":
+                    if certified and dec.rep == 0:
                         # raw agrees with itself: an audit that costs no bytes. Without it the
                         # audited decisions are the non-raw ones only, and an adaptive threshold
                         # that reaches raw-only never hears anything again (ADR 0007).
-                        certifier.feedback(dec.rep != 0 and bool(work.d[i, dec.rep]))
+                        certifier.feedback(False)
                     if dec.rep != 0:  # also ship raw so the cloud can compare
                         res.audited[i] = True
-                        if observe is not None:
-                            observe(dec.rep, bool(work.d[i, dec.rep]))
+                        res.edge_ms[i] += audit_copy_ms
+                        yield env.timeout(audit_copy_ms / 1000.0)
                         backlog += raw_wire
-                        enqueue(live, _Frame(i, raw_wire, live=False))
+                        # the edge learns only when the copy reaches the cloud (see link())
+                        enqueue(
+                            live, _Frame(i, raw_wire, False, audit=(dec.rep, disagreed, certified))
+                        )
             elif dec.flag == "deferred":
-                while deferred and deferred_bytes + raw_wire > scenario.storage_bytes - backlog:
+                cached = (
+                    float(work.payload_bytes[i, defer_rep]) + OVERHEAD_BYTES
+                    if defer_rep != 0
+                    else raw_wire
+                )
+                while deferred and deferred_bytes + cached > scenario.storage_bytes - backlog:
                     old = deferred.popleft()  # buffer full: drop the oldest cached window
                     deferred_bytes -= old.nbytes
                     res.dropped_bytes += old.nbytes
                     res.flag[old.window] = FLAGS.index("dropped")
                     track_queue(-1)
-                if deferred_bytes + raw_wire <= scenario.storage_bytes - backlog:
-                    deferred_bytes += raw_wire
-                    enqueue(deferred, _Frame(i, raw_wire, live=False))
+                if deferred_bytes + cached <= scenario.storage_bytes - backlog:
+                    deferred_bytes += cached
+                    enqueue(deferred, _Frame(i, cached, live=False))
                 else:
                     res.flag[i] = FLAGS.index("dropped")
 
@@ -255,10 +279,20 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
             else:
                 deferred_bytes -= frame.nbytes
             res.delivered_bytes += frame.nbytes
+            res.wire_bytes[frame.window] += frame.nbytes
+            if frame.audit is not None:
+                a_rep, a_disagreed, a_certified = frame.audit
+                res.audit_fed[frame.window] = True
+                if a_certified:
+                    certifier.feedback(a_disagreed)
+                if observe is not None:
+                    observe(a_rep, a_disagreed)
             est.add(frame.nbytes * 8.0 / max(env.now - start, 1e-9))
             i = frame.window
             if frame.live or res.flag[i] == FLAGS.index("deferred"):
-                rep = res.rep[i] if frame.live else 0  # store-and-forward delivers raw
+                rep = res.rep[i] if frame.live else defer_rep  # store-and-forward: raw or r1
+                if not frame.live:
+                    res.disagreed[i] = bool(work.d[i, defer_rep])
                 done = env.now + (scenario.rtt_ms / 2.0 + cloud_ms[rep]) / 1000.0
                 res.latency_ms[i] = (done - arrived[i]) * 1000.0
                 res.late[i] = res.latency_ms[i] > scenario.deadline_ms

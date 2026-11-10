@@ -1,0 +1,19 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+A sufficiency certificate is cheap to add to an offloading system and decouples the guarantee from
+the optimiser: any selector inside the safe set inherits the bound. On every dataset rerun with the
+final code, the union-bound cascade and the static set (both exploratory) keep mean disagreement
+with the raw decision below $\alpha$, while the window-level certificate lands near $\alpha$ and
+meets its pre-registered threshold only on Sleep-EDF, not significantly; the registered one-sided
+test cannot reject for a bound that is tight at $\alpha$.
+
+Whether \emph{per-window} certification pays depends on the menu. With one compact representation
+that follows the reference model, a certified static set is the right deployment: adaptive choice
+failed its pre-registered value test on every dataset, and on three of four a refused cheap payload
+left only payloads too large for a slow link. Where the menu holds a small representation close to
+the raw decision, as on Sleep-EDF, the mixed menu clears its margin over every single family. Building such a menu for units the model has
+never seen is the open problem.
+
+\paragraph{Release.} \todo{repository URL, archival DOI, bundles and the tiny-fixture
+reproduction (\texttt{make mini-paper}).}

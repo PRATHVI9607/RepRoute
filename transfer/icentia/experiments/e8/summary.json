@@ -1,0 +1,18 @@
+{
+ "s1_greedy_safe/us_per_decision": 18.796969999999998,
+ "s1_greedy_safe/us_per_decision_mad": 0.38260500000000164,
+ "s1_greedy_safe/decisions_per_s": 53200.063627276104,
+ "s2_mpc_h3/us_per_decision": 54.050529999999995,
+ "s2_mpc_h3/us_per_decision_mad": 1.0268399999999964,
+ "s2_mpc_h3/decisions_per_s": 18501.206186137308,
+ "s2_mpc_h4/us_per_decision": 76.60414,
+ "s2_mpc_h4/us_per_decision_mad": 3.7277050000000074,
+ "s2_mpc_h4/decisions_per_s": 13054.124750959934,
+ "s2_mpc_h5/us_per_decision": 189.39191,
+ "s2_mpc_h5/us_per_decision_mad": 32.712,
+ "s2_mpc_h5/decisions_per_s": 5280.056576862233,
+ "overhead_ms_probe_pred_select": 0.606544,
+ "overhead_vs_cheapest_encoder": 3.253860493810603,
+ "window_period_ms": 16384.0,
+ "overhead_share_of_window_period": 3.70205078125e-05
+}

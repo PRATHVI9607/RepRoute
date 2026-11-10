@@ -1,0 +1,28 @@
+% Shared packages and notation for main-arxiv.tex and main-ieee.tex.
+% Each main file sets \arxivtrue or \arxivfalse before \input{macros}.
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+
+% Notation (docs/glossary.md)
+\newcommand{\fraw}{f_{\mathrm{raw}}}
+\newcommand{\gh}{\hat g}
+\newcommand{\lh}{\hat\lambda}
+\newcommand{\Sset}{S_{\lambda}}
+\newcommand{\Shat}{S_{\hat\lambda}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\1}{\mathbf{1}}
+\newcommand{\rep}[1]{\texttt{#1}}
+
+% Markers. Every \todo must be gone before submission.
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\expl}{\textsuperscript{\dag}} % exploratory: added after seeing results

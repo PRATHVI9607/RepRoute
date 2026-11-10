@@ -15,7 +15,7 @@ import pandas as pd
 import typer
 
 from kai.analysis import stats
-from kai.bench.config import ROOT, work
+from kai.bench.config import ROOT, load_config, work
 
 OUT = ROOT / "docs" / "research" / "results.md"
 
@@ -23,6 +23,58 @@ OUT = ROOT / "docs" / "research" / "results.md"
 def load(name: str) -> dict | None:
     path = work() / "experiments" / name / "summary.json"
     return json.loads(path.read_text()) if path.exists() else None
+
+
+def budget_sweep(s: dict, by: pd.DataFrame) -> list[str]:
+    """Edge-memory budget sweep from `X26/required_bytes/*` (ADR 0026): at each distinct required
+    size, the deployable policies that fit and the cheapest of them by grid-total cost."""
+    need = {
+        k.rsplit("/", 1)[1]: float(v) for k, v in s.items() if k.startswith("X26/required_bytes/")
+    }
+    cost = by.set_index("policy").cost_total_per_fold
+    need = {p: b for p, b in need.items() if p != "oracle" and p in cost.index}
+    if not need:
+        return []
+    rows, had_b14 = [], False
+    for budget in sorted(set(need.values())):
+        fit = [p for p, b in need.items() if b <= budget]
+        best = min(fit, key=lambda p: cost[p])
+        committee = [p for p in fit if p in X26_POLICIES]
+        others = [p for p in fit if p not in X26_POLICIES]
+        notes = []
+        if "b14_edge_inference" in fit and not had_b14:
+            notes.append("b14 becomes available")
+        had_b14 |= "b14_edge_inference" in fit
+        if committee and (
+            not others or min(cost[p] for p in committee) < min(cost[p] for p in others)
+        ):
+            notes.append("best committee policy cheaper than everything else that fits")
+        rows.append((int(budget), len(fit), best, float(cost[best]), "; ".join(notes)))
+    sizes = [
+        (k.removeprefix("X26/size/"), int(v)) for k, v in s.items() if k.startswith("X26/size/")
+    ]
+    return [
+        "",
+        "Edge memory budget sweep (exploratory, ADR 0026): at each required model size, the policies "
+        "that fit (oracle excluded) and the cheapest of them by grid-total cost. Model size is the file "
+        "bytes of the stored model file(s), one convention for every model (f_raw, encoders, heads, "
+        "predictors); codecs without a stored file count 0. Required size is the largest over the first "
+        "fold's cells.",
+        "",
+        table(
+            pd.DataFrame(rows, columns=["budget_bytes", "n_fit", "cheapest", "cost_total", "note"])
+        ),
+        *(
+            [
+                "",
+                "Model sizes, first fold (bytes):",
+                "",
+                table(pd.DataFrame(sizes, columns=["model", "bytes"])),
+            ]
+            if sizes
+            else []
+        ),
+    ]
 
 
 def table(frame: pd.DataFrame, fmt: str = "{:.3g}") -> str:
@@ -36,6 +88,19 @@ def table(frame: pd.DataFrame, fmt: str = "{:.3g}") -> str:
 
 
 NI_MARGIN = 0.01  # ADR 0022: H2a non-inferiority margin, chosen before computing
+X25_POLICIES = (
+    "kai_s1_v0_late",
+    "kai_s1_v0_lldefer",
+    "kai_s1_v0_latent",
+    "kai_s1_v0_abc",
+    "kai_s1_v0_zsel",
+    "kai_s1_v0_ab_zsel",
+)  # ADR 0025
+X26_POLICIES = (
+    "kai_s1_v0_committee",
+    "kai_s1_v0_late_committee",
+    "kai_s1_v0_late_committee_dec",
+)  # ADR 0026
 FAMILY = ("H1", "H2a", "H2b", "H3", "H4", "H5", "H6", "H7")  # the Holm family (hypotheses.md)
 _tested: dict[
     str, bool | None
@@ -85,18 +150,16 @@ def seed_variance() -> pd.DataFrame | None:
     if frame.seed.nunique() < 2:
         return None
     per_seed = frame.groupby(["rep", "seed"], sort=False).d.mean().unstack()
+    sd_folds = frame[frame.seed == 0].groupby("rep", sort=False).d.std()
     return pd.DataFrame(
         {
             "representation": per_seed.index,
             "seeds": per_seed.shape[1],
-            "mean disagreement": per_seed.mean(axis=1).to_numpy(),
-            "sd over seeds": per_seed.std(axis=1).to_numpy(),
-            "sd over folds (seed 0)": frame[frame.seed == 0]
-            .groupby("rep", sort=False)
-            .d.std()
-            .to_numpy(),
+            "mean disagreement": per_seed.mean(axis=1),
+            "sd over seeds": per_seed.std(axis=1),
+            "sd over folds (seed 0)": sd_folds.reindex(per_seed.index),
         }
-    )
+    ).reset_index(drop=True)  # aligned on the representation index, not by position
 
 
 def _folds(values: list[float] | np.ndarray, _ids: object = None) -> np.ndarray:
@@ -105,14 +168,39 @@ def _folds(values: list[float] | np.ndarray, _ids: object = None) -> np.ndarray:
 
 
 def window_period_ms() -> float:
-    """The window period the profile was measured at (64 ms for the Paderborn windows)."""
-    profile = work() / "artifacts" / "profiles" / "local.json"
-    if not profile.exists():
-        return float("nan")
-    return float(json.loads(profile.read_text())["timing"]["duty_cycle_period_ms"])
+    """True window period: E8's `window_period_ms`, else 1000·window_n/sample_rate_hz of the windows."""
+    e8 = load("e8")
+    if e8 and "window_period_ms" in e8:
+        return float(e8["window_period_ms"])
+    for path in sorted((work() / "data" / "processed").glob("*.npz")):
+        with np.load(path, allow_pickle=False) as z, z.zip.open("x.npy") as f:
+            version = np.lib.format.read_magic(f)
+            read = (
+                np.lib.format.read_array_header_1_0
+                if version == (1, 0)
+                else np.lib.format.read_array_header_2_0
+            )
+            shape = read(f)[0]  # (n, window_n)
+            rate = float(z["sample_rate_hz"])
+        return 1000.0 * shape[1] / rate  # shortcut: first processed set, one dataset per KAI_WORK
+    return float("nan")
 
 
-def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
+def nb_ratio(dataset_id: str) -> float:
+    """Test units / non-test units of fold 0 of this dataset's L1 split manifest (ADR 0024)."""
+    splits = work() / "data" / "splits"
+    if not dataset_id:
+        ids = {p.name.split("_L1_")[0] for p in splits.glob("*_L1_*.json")}
+        dataset_id = ids.pop() if len(ids) == 1 else load_config().dataset.id
+    for path in sorted(splits.glob(f"{dataset_id}_L1_*.json")):
+        fold = json.loads(path.read_text())["folds"][0]
+        non_test = sum(len(fold[k]) for k in ("train", "ptrain", "calib"))
+        return len(fold["test"]) / non_test
+    return float("nan")
+
+
+def main(out: Path = OUT, dataset: str = "Paderborn", dataset_id: str = "") -> None:
+    """`dataset_id` (e.g. har-v1) picks the L1 split for N-B; default: the one in KAI_WORK."""
     e = {
         n: load(n)
         for n in ("e1", "e2", "e3", "e4", "e5", "e5_pi_class", "e6", "e7", "e7d", "e8", "e10")
@@ -137,6 +225,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "",
         ]
     pvalues: dict[str, float] = {}
+    nb: dict[str, float] = {}  # ADR 0024, exploratory N–B p-values (H1, H2a, H3, H5)
+    ratio = nb_ratio(dataset_id)
 
     if e["e1"]:
         s = e["e1"]
@@ -232,6 +322,10 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             stats.one_sided_p(_folds(sub.risk.to_numpy(), sub.fold.tolist()), a, greater=False)
             for a, sub in v0.groupby("alpha")
         )
+        nb["H2a"] = max(
+            stats.nb_corrected_one_sided_p(sub.risk.to_numpy(), a, ratio, greater=False)
+            for a, sub in v0.groupby("alpha")
+        )
         # ADR 0022, exploratory and outside the Holm family: H0 mean risk ≥ α + margin
         ni_p = max(
             stats.one_sided_p(_folds(sub.risk.to_numpy()), a + NI_MARGIN, greater=False)
@@ -261,6 +355,44 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             ),
             "- *Folds within α* is descriptive: CRC bounds the expected risk, so even under exact "
             "exchangeability about half of the folds (≈ 47 %) can exceed α.",
+            *(
+                [
+                    "- Exploratory (ADR 0025 C), descriptive: mean held-out AUC of ĝ_r against d_r on calib over "
+                    f"non-raw representations, φ only **{s['X25/auc/phi/mean']:.3f}**, φ and the r6 latent "
+                    f"**{s['X25/auc/phi_z/mean']:.3f}**"
+                    + (
+                        f", chosen per representation (C′) **{s['X25/auc/phi_sel/mean']:.3f}**"
+                        if "X25/auc/phi_sel/mean" in s
+                        else ""
+                    )
+                    + "."
+                ]
+                if "X25/auc/phi/mean" in s and "X25/auc/phi_z/mean" in s
+                else []
+            ),
+            *(
+                [
+                    "- Exploratory (ADR 0025 C′): folds that chose ĝ_z per representation: "
+                    + ", ".join(
+                        f"{k.rsplit('/', 1)[1]} {round(v * s['n_folds'])}/{s['n_folds']}"
+                        for k, v in s.items()
+                        if k.startswith("X25/zsel/use_z/")
+                    )
+                    + "."
+                ]
+                if any(k.startswith("X25/zsel/use_z/") for k in s)
+                else []
+            ),
+            *(
+                [
+                    "- Exploratory (ADR 0026 D), descriptive: mean held-out AUC of the head-committee score ĝ_D "
+                    f"against d_r on calib over non-raw representations **{s['X26/auc/committee/mean']:.3f}**"
+                    + (f" (ĝ: {s['X25/auc/phi/mean']:.3f})" if "X25/auc/phi/mean" in s else "")
+                    + "; V0 with ĝ_D (`v0_committee`) is in the per-variant tables above when present."
+                ]
+                if "X26/auc/committee/mean" in s
+                else []
+            ),
             "- Exchangeability control (V0 calibrated on a random half of the calibration windows and tested on the "
             "other half, mean of 20 halvings — exchangeable by construction, so the theorem's premise holds; "
             "a diagnostic, not a generalisation result): "
@@ -291,6 +423,16 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
         pvalues["H3"] = max(
             stats.one_sided_p(_folds(pf["H3_cost"], ids), 0.20),
             stats.one_sided_p(_folds(pf["H3_slo"], ids), 0.30),
+        )
+        h1 = _folds(1 / (1 - np.array(pf["H1_cost"])) - 1, ids)
+        nb["H1"] = (
+            stats.nb_corrected_one_sided_p(h1, 0.25, ratio)
+            if s["H1/reps_dominant_in_10pct_of_cells"] >= 3
+            else 1.0
+        )
+        nb["H3"] = max(
+            stats.nb_corrected_one_sided_p(_folds(pf["H3_cost"], ids), 0.20, ratio),
+            stats.nb_corrected_one_sided_p(_folds(pf["H3_slo"], ids), 0.30, ratio),
         )
         lines += [
             "## Main comparison over the scenario grid (E3)",
@@ -326,6 +468,49 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
                 if "x/kai_s1_auto/gate_auc" in s
                 else []
             ),
+            *(
+                ["- Exploratory (ADR 0025), not part of H3 (cost versus best-single, 95 % CI; versus `kai_s1_v0`):"]
+                + [
+                    f"  - `{p}`: **{s[f'X25/{p}/cost_reduction_vs_b4']:+.1%}** "
+                    f"[{s[f'X25/{p}/cost_reduction_vs_b4_ci_lo']:+.1%}, {s[f'X25/{p}/cost_reduction_vs_b4_ci_hi']:+.1%}]; "
+                    f"{s[f'X25/{p}/cost_reduction_vs_kai']:+.1%} versus Kai."
+                    for p in X25_POLICIES
+                    if f"X25/{p}/cost_reduction_vs_b4" in s
+                ]
+                if any(f"X25/{p}/cost_reduction_vs_b4" in s for p in X25_POLICIES)
+                else []
+            ),
+            *(
+                [
+                    "- Exploratory (ADR 0026), not part of H3 (cost versus best-single, 95 % CI; versus `kai_s1_v0`). "
+                    "The `_dec` variant sends the committee's decisions: a certified edge-or-cloud cascade."
+                ]
+                + [
+                    f"  - `{p}`: **{s[f'X26/{p}/cost_reduction_vs_b4']:+.1%}** "
+                    f"[{s[f'X26/{p}/cost_reduction_vs_b4_ci_lo']:+.1%}, {s[f'X26/{p}/cost_reduction_vs_b4_ci_hi']:+.1%}]; "
+                    f"{s[f'X26/{p}/cost_reduction_vs_kai']:+.1%} versus Kai."
+                    for p in X26_POLICIES
+                    if f"X26/{p}/cost_reduction_vs_b4" in s
+                ]
+                + (
+                    [
+                        f"  - `b14_edge_inference`: **{s['X26/b14_edge_inference/cost_reduction_vs_b4']:+.1%}** "
+                        "versus best-single"
+                        + (
+                            f"; total cost {s['X26/b14_edge_inference/cost_vs_best_committee']:.2f}× that of the "
+                            "best committee variant"
+                            if "X26/b14_edge_inference/cost_vs_best_committee" in s
+                            else ""
+                        )
+                        + "."
+                    ]
+                    if "X26/b14_edge_inference/cost_reduction_vs_b4" in s
+                    else []
+                )
+                if any(k.startswith("X26/") for k in s)
+                else []
+            ),
+            *budget_sweep(s, by),
             "",
             "Means over all cells, folds and the three α levels (cost in bytes-equivalent). "
             "`risk_certified_joint` = disagreeing *and* certified, per offered window: the quantity Proposition 1 "
@@ -342,7 +527,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             table(
                 by[["policy", "cost_total_per_fold", "bytes", "slo_violation", "risk_certified_joint",
                     "risk_certified", "risk_sent", "rate_certified", "rate_deferred", "rate_uncertified",
-                    "latency_p50_ms"]]
+                    "latency_p50_ms",
+                    *(["rate_certified_on_time"] if "rate_certified_on_time" in by else [])]]
             ),
             "",
         ]  # fmt: skip
@@ -357,6 +543,8 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "kai_s1_v1_per_rep",
             "kai_s2_v0",
             "kai_s1_v2",
+            *X25_POLICIES,
+            *X26_POLICIES,
         ]
         kai = [p for p in kai if p in set(grid.policy)]
         by_alpha = grid[grid.policy.isin(kai)].pivot_table(
@@ -460,6 +648,9 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             pvalues["H5"] = stats.one_sided_p(
                 _folds(s["per_fold"]["H5"], s.get("per_fold_ids")), 0.10
             )
+            nb["H5"] = stats.nb_corrected_one_sided_p(
+                _folds(s["per_fold"]["H5"], s.get("per_fold_ids")), 0.10, ratio
+            )
         lines += [
             f"## Ablations (E5) — {title}",
             "",
@@ -499,9 +690,9 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             f"- Exploratory, not part of H6 — the same test inside the waveform-preserving family (raw, lossless, wavelets), where a break-even exists: {s['family/n_theory']} predicted, {s['family/n_measured']} measured, {s['family/n_matched']} matched, worst relative error {pct(s['family/max_rel_error'])}.",
             *(
                 [
-                    "- This E4 run is the ADR 0022 re-measurement. The H6 verdict of record is the pre-registered "
-                    "run before it (in the registry; updates.md §7); a verdict that changes between measurements of "
-                    "the same thing is not counted as met.",
+                    "- If E4 was run more than once (run history), the H6 verdict of record is the first run; a "
+                    "re-measurement replaces no verdict, and a verdict that changes between measurements of the "
+                    "same thing is not counted as met.",
                     "- Exploratory (ADR 0022), not part of H6 — a measured argmin change counts only if the latency "
                     "gap exceeds 2·√(MAD_lo² + MAD_hi²) at both grid points: "
                     f"{s['H6_noise_aware/n_measured']} changes remain, {s['H6_noise_aware/n_matched']} match a "
@@ -509,6 +700,22 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
                     + ("threshold met." if s["H6_noise_aware/pass"] else "threshold not met."),
                 ]
                 if "H6_noise_aware/n_measured" in s
+                else []
+            ),
+            *(
+                [
+                    "- Exploratory (ADR 0024), not part of H6 — a measured argmin change counts only if the latency "
+                    "gap exceeds 2·√(SE_lo² + SE_hi²), SE = 1.2533·1.4826·MAD/√n (standard error of a median), at "
+                    f"both grid points: {s['H6x/median_se/changes']} changes remain, "
+                    f"{s['H6x/median_se/matched']} match a predicted boundary, worst relative error "
+                    f"{pct(s['H6x/median_se/worst_rel_error'])} → "
+                    + (
+                        "threshold met (exploratory, not a verdict)."
+                        if s["H6x/median_se/threshold_met"]
+                        else "threshold not met."
+                    ),
+                ]
+                if "H6x/median_se/changes" in s
                 else []
             ),
             f"- Latency model versus measured latency: median absolute error {s['median_latency_model_error']:.1%}; mean signed error {bias} (positive = reality slower than the model).",
@@ -642,6 +849,7 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
     # hypotheses without a replication unit enter the family with p = 1: they cannot be rejected
     family = {h: pvalues.get(h, 1.0) for h in FAMILY}
     adj = stats.holm(family)
+    adj_nb = stats.holm({h: nb.get(h, 1.0) for h in FAMILY})
     if pvalues:
         lines += [
             "## Multiple testing",
@@ -651,7 +859,10 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
             "p-values are optimistic), " + "Holm–Bonferroni at 0.05 across "
             "all eight hypotheses. H2b, H4, H6 and H7 have no replication unit in this pass: they are "
             "descriptive and enter the family with p = 1. A hypothesis is called *supported* only if its "
-            "threshold is met **and** Holm rejects the null.",
+            "threshold is met **and** Holm rejects the null. The column *p (N–B, Holm)* is "
+            f"**exploratory** (ADR 0024, test/train ratio {ratio:.2f}): a Nadeau–Bengio corrected "
+            "t-test for H1, H2a, H3 and H5 that allows for overlapping training sets; no verdict "
+            "uses it.",
             "",
             table(
                 pd.DataFrame(
@@ -661,6 +872,7 @@ def main(out: Path = OUT, dataset: str = "Paderborn") -> None:
                             "tested over folds": h in pvalues,
                             "p (raw)": family[h],
                             "p (Holm)": adj[h][0],
+                            "p (N–B, Holm)": adj_nb[h][0],
                             "rejects the null": adj[h][1],
                         }
                         for h in FAMILY

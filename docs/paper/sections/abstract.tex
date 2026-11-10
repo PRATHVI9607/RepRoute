@@ -1,0 +1,20 @@
+% Numbers: docs/research/results*.md (E2, E3, E5, E7, E7d) and updates.md §6–7.
+An edge node that offloads sensor windows to a cloud model must decide what to send: raw samples,
+a compressed waveform, engineered features or a learned latent. We certify that choice. Conformal
+risk control on the event that the cloud's decision would differ from its decision on the raw
+window yields a per-window \emph{safe set} of representations. When calibration and test windows
+are exchangeable, the expected rate, per offered window, of decisions that are both certified and
+in disagreement with the raw-data decision is at most $\alpha$ for \emph{any} selector that chooses
+inside the set, so the cost optimiser can be replaced without a new proof. We evaluate on
+bearing vibration, human activity, speech and sleep EEG under leave-units-out splits, against
+seven pre-registered hypotheses. The window-level certificate's mean risk lands near $\alpha$; its
+pre-registered test is met only on one dataset and is not significant there. A union-bound cascade
+of a fixed and a per-window set, added after the first results and therefore exploratory, keeps
+mean risk below $\alpha$ on every dataset rerun with the final code. Per-window adaptive selection
+fails its pre-registered value test on every dataset. On three of four, an uncertified fixed
+choice is cheaper, because when the certificate refuses the cheap latent the next certified payload
+is too large for a slow link; on the fourth, adaptive choice is cheaper but misses the SLO-reduction
+target. A mixed menu clears the pre-registered 10\,\% margin over the best single representation
+family on two datasets. The simulator
+matches a real-socket runtime within 10\,\% at the median on three of four rerun datasets and in a
+Docker testbed. We report the negative results as such and release the pipeline.

@@ -1,46 +1,46 @@
 {
  "backend": "loopback sockets, token-bucket pacing, same laptop as the DES (no Pi), 300 windows per rate",
- "max_p50_rel_gap": 0.08763812271857792,
+ "max_p50_rel_gap": 0.10176356363157069,
  "min_selection_agreement": 0.9766666666666667,
  "n_rows_unmeasured": 0,
  "rows": [
   {
    "bandwidth_bps": 256000.0,
-   "p50_real_ms": 91.0916639962488,
+   "p50_real_ms": 90.70007499809256,
    "p50_sim_ms": 85.91535699965647,
-   "p50_rel_gap": 0.05682525457878883,
-   "p95_real_ms": 54278.78104479945,
+   "p50_rel_gap": 0.052753186792146724,
+   "p95_real_ms": 54278.48748965094,
    "p95_sim_ms": 52204.34021500003,
    "selection_agreement": 0.9766666666666667,
    "delivered_real": 0.8666666666666667,
-   "bandwidth_estimate_real_bps": 253917.65200432195
+   "bandwidth_estimate_real_bps": 254128.36190947157
   },
   {
    "bandwidth_bps": 1000000.0,
-   "p50_real_ms": 20.73951199474294,
+   "p50_real_ms": 20.509844505782535,
    "p50_sim_ms": 21.775856999667553,
-   "p50_rel_gap": 0.049969594520223315,
-   "p95_real_ms": 68.86044089935213,
+   "p50_rel_gap": 0.06172706446058522,
+   "p95_real_ms": 69.1790822933268,
    "p95_sim_ms": 70.112506499666,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
-   "bandwidth_estimate_real_bps": 981695.6451442614
+   "bandwidth_estimate_real_bps": 982893.6544713966
   },
   {
    "bandwidth_bps": 5000000.0,
-   "p50_real_ms": 10.056154497721966,
+   "p50_real_ms": 9.927227002877892,
    "p50_sim_ms": 10.937456999670303,
-   "p50_rel_gap": 0.08763812271857792,
-   "p95_real_ms": 19.35836729149489,
+   "p50_rel_gap": 0.10176356363157069,
+   "p95_real_ms": 19.68190770461309,
    "p95_sim_ms": 20.756986499661426,
    "selection_agreement": 1.0,
    "delivered_real": 1.0,
-   "bandwidth_estimate_real_bps": 4593557.855359285
+   "bandwidth_estimate_real_bps": 4535326.759999847
   }
  ],
  "bundle_id": "5ac2cf85b25c",
  "bundle_git_sha": "40d602a2bfd7c31b812e98c061ca9a079788502b",
  "profiles_sha256": "edd29aa8f7edadf0ae58b3c1b2f5857fa8ea764f5263f0af87a30c541db3ded1",
  "selector": "s1_greedy_safe",
- "H7_pass": true
+ "H7_pass": false
 }

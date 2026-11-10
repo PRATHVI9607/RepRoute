@@ -1,0 +1,42 @@
+% Source: PRD §3.3 and docs/research/lit-matrix.csv (row numbers in comments).
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Conformal guarantees at the edge.} Conformal risk control~\cite{angelopoulos2024crc}
+and Learn-then-Test~\cite{angelopoulos2021ltt} turn a calibration set into a bound on the expected
+or high-probability risk of a thresholded decision. At the edge they have been applied to a single
+payload family or to choices other than the payload: which labels sensors report under a capacity
+limit~\cite{zhu2024cdcrc} (row 18), resource allocation with a long-term reliability
+constraint~\cite{binucci2025clo} (19), sparsified draft distributions in speculative
+decoding~\cite{bhattacharjee2025csqs} (20), per-sequence distortion of one compressor over a
+channel~\cite{ganesan2025occ,zecchin2025ppc} (21, 22), and task-level coverage of one encoder under
+channel shift~\cite{batra2026wcsc} (23). Kalør and Ohtsuki~\cite{kalor2025blackbox} (11) choose a
+feature-extractor and model combination, including codec settings, under conformal latency and
+accuracy bounds; the combination is fixed a priori, not per window. Huang et
+al.~\cite{huang2025cascades} (12) use conformal alignment to decide \emph{whether} to offload.
+None of these certifies, per window, which representation of the data to send.
+
+\paragraph{Cascades and routing with risk control.} A common pattern bounds one quantity and
+optimises the other: edge-cloud-expert cascades with a finite-sample misalignment bound across
+model tiers~\cite{hou2025cascades} (25), delegation thresholds on a learned
+probe~\cite{pona2026ctd} (26), risk-controlled early exits~\cite{jazbec2024fastsafe} (27) and
+CRC-based routing between two models~\cite{overman2025arbitrage} (28). Our certificate follows the
+same pattern, over payload representations rather than models, and adds the statement that any
+selector inside the safe set inherits the bound.
+
+\paragraph{Codec and representation selection without guarantees.}
+AdaEdge~\cite{liu2024adaedge} (13) selects per segment among six lossless and five lossy
+time-series codecs under bandwidth, storage and throughput limits, scored by agreement of the
+model's predictions on decompressed and raw data. It is the closest prior work: it already has a
+heterogeneous menu and the agreement criterion, and it is a best-effort bandit without a safe set
+or a risk bound. VergeDB~\cite{paparrizos2021vergedb} (14) weighs compute, storage and network for
+downstream accuracy; ZipMate~\cite{lu2020zipmate} (15) picks a lossless compressor from a
+throughput model. Single-family task-aware compression~\cite{brosh2021dynamicdeep,huang2020deadline}
+(16, 17), progressive or escalating transmission~\cite{amiri2022sicedge,lan2021progressftx} (6, 32)
+and learned feature compression~\cite{matsubara2022sc} (10) design or tune one encoder; they do not
+select among families at run time.
+
+\paragraph{What is new here.} Not the heterogeneous menu and not agreement with the raw model,
+which AdaEdge has, and not conformal control at the edge. The difference is a per-window
+certificate over a heterogeneous menu that is independent of the selector, and an evaluation on
+unseen units that reports where it pays and where it does not.

@@ -31,10 +31,12 @@ The formal guarantee is for a test window exchangeable with the calibration wind
 - Audit-in-the-loop: with probability `p_audit` the edge also sends raw, the cloud reports whether
   the chosen representation agreed, and Adaptive Conformal Inference moves the working level.
   The update runs on the audited subsequence rather than with inverse-probability weights, whose
-  1/p spikes make the threshold oscillate. Every sent decision is audited with the same
-  probability: a non-raw one by shipping a raw copy, a raw one for free (it agrees with itself),
-  so the audited decisions are a uniform subsample and the threshold can leave raw-only again
-  (ADR 0007). ACI tracks the **realised policy risk**, has no finite-sample guarantee, and its
+  1/p spikes make the threshold oscillate. Only `certified` decisions feed ACI (ADR 0021). Each is
+  audited with the same probability: a non-raw one by shipping a raw copy, a raw one for free (it
+  agrees with itself). Feedback arrives when the audit copy is delivered (ADR 0023);
+  copies still queued at the end of a run give none, so the feedback is a uniform subsample of
+  certified decisions apart from that tail, which is reported per cell (`rate_audit_unfed`). The
+  threshold can leave raw-only again (ADR 0007). ACI tracks the **realised policy risk**, has no finite-sample guarantee, and its
   bytes are counted in every result.
 
 ## 3. Deadline misses are not disagreements

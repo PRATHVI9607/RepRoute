@@ -192,3 +192,12 @@ class CostModel:
             & (self.profiles.size_bytes + OVERHEAD_BYTES <= s.storage_free_bytes)
         )
         return out
+
+    def sendable(self, s: State) -> Bool:
+        """Like `feasible` but ignoring the deadline; the link must be up (ADR 0025 A)."""
+        out: Bool = (
+            (self.energy_j(s) <= s.energy_budget_j)
+            & (self.profiles.size_bytes + OVERHEAD_BYTES <= s.storage_free_bytes)
+            & (s.bandwidth_bps > 0.0)
+        )
+        return out

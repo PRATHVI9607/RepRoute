@@ -1,5 +1,13 @@
 # Paper draft — certify-then-optimize for edge sensor offloading
 
+**The manuscript now lives in LaTeX (2026-11-09):** `main-arxiv.tex` (article, with appendix:
+full proof and the earlier-code datasets) and `main-ieee.tex` (IEEEtran conference, no appendix)
+share `sections/*.tex`, `macros.tex` and `refs.bib`. Build with
+`latexmk -pdf main-arxiv.tex` / `latexmk -pdf main-ieee.tex`. Every number carries a `% src:`
+comment naming its report. Open items are `\todo{…}` (red in the PDF): authors, Icentia11k
+(§7.8), the release URL, and bibliography entries marked VERIFY in `refs.bib`. This file stays
+as the outline.
+
 Status: working draft, 2026-11-01 (after the ADR 0020 / 0021 rerun). **No number is typed here.**
 Every quantitative statement points to a section of [results.md](../research/results.md)
 (Paderborn) or a transfer report — [results-har.md](../research/results-har.md),

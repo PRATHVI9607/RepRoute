@@ -1,0 +1,96 @@
+% Source: docs/theory/proposition1.md, ADR 0008 (static set), ADR 0011 (cascade), ADR 0020 (group CRC).
+\section{Method}
+\label{sec:method}
+
+\subsection{Calibration and the any-selector statement}
+
+Let $x_1,\dots,x_n$ be calibration windows, $\Lambda$ a finite grid in $[-1,1]$ that contains $-1$,
+and $\hat R_n(\lambda) = \frac1n \sum_{i\le n} L(x_i;\lambda)$. Variant V0 takes
+\begin{equation}
+  \lh = \max\Bigl\{\lambda \in \Lambda : \tfrac{n \hat R_n(\lambda) + 1}{n+1} \le \alpha\Bigr\},
+  \qquad \lh = -1 \text{ if the set is empty.}
+  \label{eq:lhat}
+\end{equation}
+At $\lh = -1$ the safe set is $\{r_0\}$ and the system sends raw.
+
+\begin{proposition}[Certify-then-optimise]
+\label{prop:anyselector}
+Let $(x_1,\dots,x_n,x_{n+1})$ be exchangeable and let the reference model, the encoders, the heads
+and the predictor be fitted on data independent of them (\texttt{train} and \texttt{ptrain}). Then for every selector $\pi$ (deterministic, randomised, learned or
+state-dependent) and $C = \{\pi(x_{n+1},z) \in S_{\lh}(x_{n+1})\}$,
+\[
+  \E\bigl[d_{\pi(x_{n+1},z)}(x_{n+1})\,\1\{C\}\bigr] \;\le\; \E\bigl[L(x_{n+1};\lh)\bigr] \;\le\; \alpha .
+\]
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+With $m(x) = \min\{\gh_r(x) : d_r(x) = 1\}$ ($+\infty$ if none disagrees), $L(x;\lambda) =
+\1[\lambda \ge m(x)]$: non-decreasing in $\lambda$, bounded by 1, and $0$ at $\lambda=-1$. The
+losses $L(x_i;\cdot)$ are exchangeable because $m$ is a fixed function once the predictor and heads
+are fixed. The CRC argument~\cite{angelopoulos2024crc}, written for a finite grid so that no
+continuity is needed when scores tie, gives $\E[L(x_{n+1};\lh)] \le \alpha$. On $C$ the chosen
+representation is a member of the safe set, so $d_\pi \1\{C\} \le L(x_{n+1};\lh)$ pointwise,
+whatever $\pi$ looks at. Only $\lh$, the scores and the set of windows averaged over must not
+depend on the test losses.
+\ifarxiv The full proof is in Appendix~\ref{app:proof}.\else The full proof is in the extended
+version~\cite{kai2026arxiv}.\fi
+\end{proof}
+
+Three remarks bound how the proposition may be read. First, it bounds an \emph{expectation} over
+calibration draws: a single draw exceeds $\alpha$ in a large share of draws, and the share of folds
+within $\alpha$ is descriptive. Second, exchangeability is an assumption. Windows of one unit are
+autocorrelated, and a new unit may be shifted against the calibration units; leave-units-out splits
+do not make windows exchangeable. Third, a weak predictor costs efficiency, not validity: it
+shrinks the safe set towards raw.
+
+\subsection{Variants}
+
+\begin{description}
+  \item[V0] CRC as above. Pre-registered (H2a).
+  \item[V1] The same scores with a single Learn-then-Test threshold~\cite{angelopoulos2021ltt}:
+  exact binomial tests in a fixed sequence at $\delta = 0.1$, giving
+  $P(R(\lh) \le \alpha) \ge 1-\delta$ for i.i.d.\ windows. Pre-registered (H2b). The binomial
+  p-values are optimistic under autocorrelation.
+  \item[V2] A threshold for one policy (the greedy choice under the nominal cost vector). It bounds
+  that policy only, and the selector in the simulator sees live state, so V2 rows are exploratory.
+  \item[Static set\expl] V0 with constant scores: each representation's disagreement rate on
+  \texttt{ptrain}. One safe set for every window; the edge runs no probe and no predictor.
+  \item[Cascade\expl] Two certified sets at $\alpha/2$ each: the static set $F$ and the per-window
+  set $A(x)$. For every window $\max_{F\cup A(x)} d \le \max_F d + \max_{A(x)} d$, so the union is
+  certified at $\alpha$ in expectation, with no independence between the two calibrations needed,
+  and any selector inside the union is covered. A value-of-information gate runs the probe and the
+  predictor only when some non-free representation, after paying for them, could be cheaper than
+  the cheapest feasible member of $F$; otherwise it sends that member, certified. A first version
+  with one threshold on $\min(\gh_r, c_r)$ is also valid; it was run and rejected on the
+  certificate experiment because noisy scores of poor representations removed the 16-byte latent
+  from the free set. Both versions are recorded; only the union version is reported.
+  \item[Group CRC\expl] V0 on one sample per calibration unit (the unit's mean loss). It bounds the
+  expected mean loss of a new unit exchangeable with the calibration units; with class-stratified
+  units, exchangeability holds within a stratum only. Its finite-sample term needs at least
+  $\lceil 1/\alpha\rceil - 1$ calibration units (19 at $\alpha=0.05$, 9 at $\alpha=0.1$); below
+  that it returns raw only.
+\end{description}
+
+Variants marked \expl{} were added after the first results were seen and are exploratory
+throughout the paper.
+
+\subsection{Selection inside the safe set}
+
+The certificate fixes the set; cost minimisation is a separate step. The greedy-safe selector (S1)
+sends the cheapest representation that is in the safe set and can meet the deadline under the
+current state. If none can, a degradation ladder applies: under the \texttt{fidelity\_first}
+mission used throughout, raw is cached and retried (\texttt{deferred}); under
+\texttt{liveness\_first} the cheapest feasible representation outside the set is sent and flagged
+\texttt{uncertified}. A model-predictive selector (S2) plans over horizons of three to five windows
+inside the same set. By Proposition~\ref{prop:anyselector}, both inherit the bound.
+
+\subsection{Drift}
+
+Two mechanisms address shift, and neither has a finite-sample guarantee. In the audit loop, with
+probability $p_{\mathrm{audit}}$ the edge also sends raw, the cloud reports whether the chosen
+representation agreed, and adaptive conformal inference (ACI)~\cite{gibbs2021aci} moves the working
+level on the audited subsequence. Only certified decisions feed ACI; each is audited with the same
+probability, so the feedback is a uniform subsample of certified decisions. A probe-feature monitor (two-sample Kolmogorov--Smirnov
+tests per feature, Bonferroni-corrected) switches the edge to raw only when recent windows stop
+looking like calibration windows. The cascade refuses both, because it skips the probe on most
+windows.

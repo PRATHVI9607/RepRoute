@@ -78,3 +78,66 @@ looks pre-registered that was not.
 | 2026-10-14 | Simulator: timings measured at each node's duty cycle; a calibrated per-frame runtime overhead in the cost model; three measured 4G trace classes added to the grid (972 → 1296 cells); policies `kai_s1_v0_static` (exploratory) and a single-threshold `kai_s1_v1` added, the former `kai_s1_v1` renamed `kai_s1_v1_per_rep` ([ADR 0008](../adr/0008-simulator-timing-static-certificate-traces.md)) | The 32-sensor cells were charged cold-start timings that do not apply to a node that is never idle; real latency under load was 40 % above the model; the cellular traces were all synthetic | **All results of the 2026-10-14 morning run**, including H3 at −560 %. No hypothesis, metric or threshold changed; H1 and H3 are evaluated on the larger grid |
 | 2026-10-14 | Implementation bug fixed: the scenario-grid workload is spread over the whole test partition instead of its first 1200 windows (one healthy bearing per fold); H1's count no longer labels empty cells as raw; folds with a zero reference total are left out of a reduction ([ADR 0010](../adr/0010-code-audit-fixes.md)) | A code audit | **All E3 / E5 / E7 results so far**, which are invalid and are not quoted. No definition or threshold changed |
 | 2026-10-15 | Cascade selector `kai_s1_cascade` and certificate row `v0_cascade` added, exploratory ([ADR 0011](../adr/0011-cascade-selector.md)); the CPU-priced preset re-run on all 15 folds | The per-window and the static certificate each win in one pricing regime | **All results after ADR 0010.** No hypothesis, metric or threshold changed |
+
+## SHHS confirmatory pre-registration (2026-11-10)
+
+Written on 2026-11-10, before any SHHS data is downloaded (NSRR request submitted 2026-11-09, not yet
+approved). Everything below is frozen from this date; any deviation is added to the log above with
+its reason and what had been seen. The six earlier datasets are exploratory for these hypotheses:
+the policy, the edge setting and the thresholds were chosen after their results were seen
+(ADR 0025, 0026, 0027), so their numbers there are post-selection. Only SHHS tests them.
+At k = 10, `kai_s1_v0` met both S-H3′ thresholds on 3 of the 6 exploratory datasets (HAR, Sleep-EDF,
+Speech Commands with log-mel) and failed on Paderborn, Icentia11k and raw Speech Commands; threshold
+(b) = 0.10 was set after these numbers were seen, and k = 10 was preferred over k = 100 after k = 100
+saturated (ADR 0027 addendum). This deviates from the ADR 0025 addendum, which expected an ADR 0025 /
+0026 variant to be named: the pre-registered `kai_s1_v0` is named instead. SHHS is the same task and
+modality as Sleep-EDF, so it tests replication, not generality. The 10× edge is a model, not a
+measured device.
+
+**Data.** SHHS visit 1 (`shhs1`), EEG channel `EEG` (C4-A1, 125 Hz), resampled to 102.4 Hz (3072
+samples per 30-s epoch, as Sleep-EDF). Stages from the NSRR XML annotations, mapped as in the
+Sleep-EDF loader (W, N1, N2, N3 = stages 3 + 4, REM); movement and unscored epochs dropped; 30 min
+of wake kept on each side of the sleep period. Resampling with `resample_poly(x, 512, 625)`. A random
+1000 participants: `np.random.default_rng(0).choice(sorted(nsrrid), 1000, replace=False)` over the
+`shhs1` participants of the NSRR release current at download (its version is logged), before any
+signal file is read. Nights whose EEG channel is missing or unreadable are dropped and counted,
+before fold assignment, and are not replaced.
+
+**Protocol.** Unit = participant (`nsrrid`). 5 leave-participants-out folds, one repeat, training seed 0,
+`make_l1_splits` defaults as for Sleep-EDF (`configs/dataset/sleepedf.yaml`: `f_calib` = 0.25,
+`f_ptrain` = 0.25). The reference model f_raw is chosen by inner CV on
+training participants only (`select_reference`); every candidate is recorded. α ∈ {0.02, 0.05,
+0.10}, δ = 0.1, the E3 grid of `configs/scenario/grid.yaml` (1296 cells), price preset
+`metered_cellular`, mission `fidelity_first`. `test` is read once.
+
+**Edge setting (S-H3′ only).** Every edge time × 10, f_raw's and any head's run on the edge included, and CPU power
+÷ 10 (energy per window unchanged), as in ADR 0027 (`e3s`, k = 10).
+
+| ID | Statement | Metric and test | Threshold |
+|---|---|---|---|
+| **S-H3′** Cost on a slow edge | Kai (`kai_s1_v0`: S1 greedy-safe, V0) is cheaper than both the best single representation and running f_raw on the edge. B4 is uncertified (multiple testing); b14 has zero disagreement; Kai is compared at expected risk ≤ α. | (a) `1 − total_Kai / total_B4` and (b) `1 − total_Kai / total_b14` over the full grid at the 10× edge, per fold. One-sided test of each threshold over folds; p = max(p_a, p_b) (intersection–union). | (a) ≥ 0.20 and (b) ≥ 0.10 |
+| **S-H2a** Certificate | In expectation over calibration draws, under exchangeable participants, V0 keeps the mean safe-set risk of certified decisions within α + 0.01 (non-inferiority, ADR 0022; weaker than H2a, which requires ≤ α). | Safe-set risk per fold for each α; one-sided test that the mean over folds is below α + 0.01 (non-inferiority, ADR 0022); p = max over α. | mean ≤ α + 0.01 for every α |
+| **S-H5** Heterogeneity | The full menu beats the best within-family controller. | `1 − total_Kai / min(total_compression-only, total_learned-only)` (E5, laptop edge timings, α = 0.05), per fold; one-sided test. | ≥ 0.10 |
+
+**Tests.** Every test is `kai.analysis.stats.one_sided_p`: a one-sample Student t over the 5 fold
+values, df = 4, H1: mean > threshold (S-H2a: mean < α + 0.01). Folds with zero spread or a non-finite
+value give p = 1 (so an S-H2a with zero risk in every fold fails by convention; accepted, it can
+only weaken a claim). "Threshold met" means the fold mean meets it. The intersection–union p is the
+maximum of its component p-values (S-H3′ over (a) and (b); S-H2a over α). All 5 folds enter every
+test whatever G1 says; G1 is reported per fold. If a fold does not complete, no hypothesis is
+supported. No fold is re-run with a new seed. Test participants are disjoint across folds, but
+training sets overlap, so p-values are mildly optimistic; the Nadeau–Bengio p (ADR 0024) is reported
+as a sensitivity check and is not used for the verdict. CIs: `bca_ci` over folds (under-covers at
+n = 5) and `block_bootstrap_ci` by participant, 95 %, `default_rng(0)`.
+
+**Multiple testing.** Holm–Bonferroni over {S-H3′, S-H2a, S-H5} at family-wise 0.05, within SHHS
+only. A hypothesis is *supported* only if its threshold is met and its Holm-adjusted p < 0.05. With
+5 folds the tests have little power; that is accepted, not repaired after the fact.
+
+**Reported, not tested.** Full H3 (including the SLO part versus B5), `b1_raw`, every ADR 0025 /
+0026 variant, the laptop-speed (1×) E3, and the 100× edge. None enters the family or replaces a
+verdict above.
+
+**Implementation before download.** An SHHS loader (EDF + NSRR XML) beside the Sleep-EDF one, and a
+report section that computes S-H3′, S-H2a and S-H5 with this Holm family. Both are tested on
+synthetic files only.
