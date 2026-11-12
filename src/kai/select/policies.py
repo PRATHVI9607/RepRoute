@@ -38,12 +38,21 @@ class GreedySafe:
     queue_aware: bool = True
     name: str = "s1_greedy_safe"
     defer_rep: int = 0  # rep cached for a deferred window (ADR 0025 B); read by the simulator
+    late_cap_factor: float = 10.0  # certified_late sends only if deliverable within cap·D
+    deadline_nominal_ms: float | None = None  # the cell's D; None: use the remaining budget
     overhead: ClassVar[OverheadKind] = "full"
 
     def select(self, win: Window, state: State, truth: Truth | None = None) -> Decision:
         s = state if self.queue_aware else replace(state, backlog_bytes=0.0)
         cost, feasible = self.plan.evaluate(s)
-        sendable = self.plan.sendable(s) if self.mission == "certified_late" else None
+        sendable = None
+        if self.mission == "certified_late":
+            nominal = self.deadline_nominal_ms
+            if nominal is None:
+                sendable = self.plan.sendable(s, self.late_cap_factor * s.deadline_ms)
+            else:  # the cap is on the lateness of the window, measured from its arrival
+                waited = max(0.0, nominal - s.deadline_ms)
+                sendable = self.plan.sendable(s, self.late_cap_factor * nominal, waited)
         return ladder(win.safe, feasible, cost, self.mission, sendable)
 
 

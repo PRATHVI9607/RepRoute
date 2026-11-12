@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import multiprocessing as mp
+import os
 import platform
 import shutil
+import zlib
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, fields, replace
@@ -31,7 +34,14 @@ from kai.contracts.windows import WindowSet
 from kai.data.splits import load_manifest
 from kai.edge.bundle import Bundle, sha256_file
 from kai.link.des import Result
-from kai.profile.profiler import co_tenants, measure_overheads, profile_menu, profile_pipeline
+from kai.profile.profiler import (
+    co_tenants,
+    core_metadata,
+    measure_overheads,
+    p_core,
+    profile_menu,
+    profile_pipeline,
+)
 from kai.reps.registry import WAVEFORM_REPS
 from kai.select.base import Window
 from kai.select.cost import CostModel, Overheads, Profiles, State
@@ -39,8 +49,20 @@ from kai.select.policies import GreedySafe
 from kai.tasks.pipeline import Table
 
 
+def profile_file(name: str) -> Path:
+    return work() / "artifacts" / "profiles" / f"{name}.json"
+
+
+def local_profile_path() -> Path:
+    """The profile every experiment reads: cloud times always, edge times unless an edge profile
+    is given (ADR 0028 D)."""
+    return profile_file("local")
+
+
 def profile_path() -> Path:
-    return work() / "artifacts" / "profiles" / "local.json"
+    """Where E1 writes: `KAI_PROFILE` (default `local`) names the file, so a slow-edge profiling
+    run (`KAI_PROFILE=slow400`) never overwrites `local.json`."""
+    return profile_file(os.environ.get("KAI_PROFILE", "local"))
 
 
 # --- shared plumbing -----------------------------------------------------------------------------
@@ -60,20 +82,33 @@ def fold_dirs(cfg: DictConfig, level: str = "L1") -> list[Path]:
     return sorted(p.parent for p in base.glob(f"s{int(cfg.seed)}_*/metrics.json"))
 
 
+def _duty_cycle(data: dict, n_sensors: int) -> dict:
+    measured = [int(k) for k in data.get("busy", {}) if int(k) <= n_sensors]
+    return data["busy"][str(max(measured))] if measured else data
+
+
 def load_profiles(
-    path: Path | None = None, edge_slowdown: float = 1.0, n_sensors: int = 1
+    path: Path | None = None,
+    edge_slowdown: float = 1.0,
+    n_sensors: int = 1,
+    edge_profile: Path | None = None,
 ) -> tuple[list[RepProfile], Overheads]:
     """Measured profiles. `edge_slowdown` scales edge CPU times to model a slower edge device.
 
     `n_sensors` picks the timings measured at that node's duty cycle (one window every
     period / n_sensors): the profile of the largest measured sensor count not above it.
+    `edge_profile` (ADR 0028 D) is a profile measured on the slow edge: its encode times and
+    overheads replace the local ones; decode and head times (cloud) stay local.
     """
-    data = json.loads((path or profile_path()).read_text())
-    measured = [int(k) for k in data.get("busy", {}) if int(k) <= n_sensors]
-    if measured:
-        data = data["busy"][str(max(measured))]
+    data = _duty_cycle(json.loads((path or local_profile_path()).read_text()), n_sensors)
     profiles = [RepProfile(**p) for p in data["profiles"]]
     ov = Overheads(**data["overheads"])
+    if edge_profile is not None:
+        edge = _duty_cycle(json.loads(edge_profile.read_text()), n_sensors)
+        by_id = {p["rep_id"]: p for p in edge["profiles"]}
+        enc = ("t_enc_ms", "t_enc_mad_ms", "t_enc_q95_ms")
+        profiles = [p.model_copy(update={k: by_id[p.rep_id][k] for k in enc}) for p in profiles]
+        ov = Overheads(**edge["overheads"])
     if edge_slowdown != 1.0:
         profiles = [
             p.model_copy(
@@ -94,6 +129,25 @@ def load_profiles(
     return profiles, ov
 
 
+def edge_head_ms(
+    edge_profile: Path, rep_ids: tuple[str, ...], n_sensors: int = 1
+) -> tuple[np.ndarray, np.ndarray]:
+    """(head, decode) time per representation as measured on the slow edge, in the order of
+    `rep_ids`: what the committee's edge-side heads and decodes cost there."""
+    data = _duty_cycle(json.loads(edge_profile.read_text()), n_sensors)
+    by_id = {p["rep_id"]: p for p in data["profiles"]}
+    return (
+        np.array([float(by_id[r]["t_head_ms"]) for r in rep_ids]),
+        np.array([float(by_id[r]["t_dec_ms"]) for r in rep_ids]),
+    )
+
+
+def ci_rng(seed: int, block: int, alpha: float, name: str) -> np.random.Generator:
+    """One Generator per (block, α, variant) bootstrap CI (ADR 0028 fix 7): a CI never depends on
+    which other rows exist, so exploratory rows cannot shift a pre-registered CI."""
+    return np.random.default_rng([seed, block, round(alpha * 1e4), zlib.crc32(name.encode())])
+
+
 def window_period_ms(cfg: DictConfig) -> float:
     ws = WindowSet.load(work() / cfg.dataset.windows)
     return 1000.0 * ws.window_n / ws.sample_rate_hz
@@ -106,14 +160,22 @@ def out_dir(name: str) -> Path:
 
 
 def finish(
-    name: str, cfg: DictConfig, summary: dict[str, Any], frame: pd.DataFrame | None = None
+    name: str,
+    cfg: DictConfig,
+    summary: dict[str, Any],
+    frame: pd.DataFrame | None = None,
+    edge_profile: Path | None = None,
 ) -> dict[str, Any]:
     """Write the summary (and the per-run table), and register the run."""
     out = out_dir(name)
+    if cfg.get("late_cap_factor") is not None:  # the report labels its cap from this
+        summary.setdefault("late_cap_factor", float(cfg.late_cap_factor))
     (out / "summary.json").write_text(json.dumps(summary, indent=1, default=float))
     if frame is not None:
         frame.to_parquet(out / "results.parquet", index=False)
-        (out / "results.meta.json").write_text(json.dumps(provenance(cfg)))
+        (out / "results.meta.json").write_text(
+            json.dumps(provenance(cfg) if edge_profile is None else provenance(cfg, edge_profile))
+        )
     flat = {k: float(v) for k, v in summary.items() if isinstance(v, int | float | np.floating)}
     record(name, as_dict(cfg), int(cfg.seed), flat)
     return summary
@@ -121,22 +183,58 @@ def finish(
 
 # keys that change how a run is executed, never what it computes
 _RUN_ONLY_KEYS = ("reuse", "add_policies", "workers")
+_SIM_FILES = (
+    "link/*.py", "select/*.py", "certify/*.py", "bench/evaluate.py", "bench/calibrate.py",
+)  # fmt: skip
+_hash_cache: dict[tuple[str, int, int], str] = {}
 
 
-def provenance(cfg: DictConfig) -> dict[str, str]:
-    """What stored per-run results were computed from: the config, the split, the folds and the
-    timing profile (ADR 0023: a reuse that adds policies must not mix fold sets or cost models)."""
+def _file_sha(path: Path) -> str:
+    st = path.stat()  # fold tables are large and hashed on every reuse check
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _hash_cache:
+        _hash_cache[key] = sha256_file(path)
+    return _hash_cache[key]
+
+
+def code_hash() -> str:
+    """sha256 over the simulation code only: `link/ select/ certify/` plus `bench/evaluate.py` and
+    `bench/calibrate.py` (sorted). Report, harness and CLI edits do not invalidate stored rows."""
+    root = Path(__file__).resolve().parents[1]
+    h = hashlib.sha256()
+    for pattern in _SIM_FILES:
+        for p in sorted(root.glob(pattern)):
+            h.update(p.relative_to(root).as_posix().encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def provenance(cfg: DictConfig, edge_profile: Path | None = None) -> dict[str, str]:
+    """What stored per-run results were computed from: the config, the split, the folds (and their
+    tables), the simulator code and the timing profile (ADR 0023, 0028 fix 10: a reuse that adds
+    policies must not mix fold sets, code or cost models)."""
     computed = {k: v for k, v in as_dict(cfg).items() if k not in _RUN_ONLY_KEYS}
-    prof = profile_path()
-    return {
+    prof = local_profile_path()
+    folds = fold_dirs(cfg)
+    out = {
         "config_hash": config_hash(computed),
         "split_id": split_id(cfg),
-        "folds": ",".join(p.name for p in fold_dirs(cfg)),
+        "folds": ",".join(p.name for p in folds),
+        "fold_tables": ",".join(
+            f"{p.name}:{_file_sha(p / 'table.npz') if (p / 'table.npz').exists() else 'none'}"
+            for p in folds
+        ),
+        "code_hash": code_hash(),
         "profile_sha256": sha256_file(prof) if prof.exists() else "none",
     }
+    if edge_profile is not None:
+        out["edge_profile_sha256"] = sha256_file(edge_profile)
+    return out
 
 
-def load_stored(cfg: DictConfig, name: str) -> pd.DataFrame | None:
+def load_stored(
+    cfg: DictConfig, name: str, edge_profile: Path | None = None
+) -> pd.DataFrame | None:
     """Stored `results.parquet` of an experiment, refused if config or split changed since."""
     stored = out_dir(name) / "results.parquet"
     if not stored.exists():
@@ -144,7 +242,8 @@ def load_stored(cfg: DictConfig, name: str) -> pd.DataFrame | None:
     meta = stored.with_name("results.meta.json")
     if not meta.exists():
         raise ValueError(f"refusing to reuse {stored}: no provenance sidecar; rerun without reuse")
-    want, have = provenance(cfg), json.loads(meta.read_text())
+    want = provenance(cfg) if edge_profile is None else provenance(cfg, edge_profile)
+    have = json.loads(meta.read_text())
     if want != have:
         raise ValueError(
             f"refusing to reuse {stored}: stored {have} != current {want}; rerun without reuse"
@@ -168,9 +267,20 @@ def _governor() -> str:
 # --- E1: representation profiling ----------------------------------------------------------------
 
 
+def f_raw_choice(folds: list[Path]) -> str | None:
+    """The per-fold f_raw choice (ADR 0028 §7), or None for folds built without one. E1 profiles
+    fold 0's f_raw for every fold, so folds that chose different models raise here."""
+    found = {json.loads((f / "metrics.json").read_text()).get("f_raw_choice") for f in folds}
+    choices = found - {None}
+    if len(choices) > 1:
+        raise ValueError(f"folds chose different f_raw {sorted(choices)}: one E1 profile can't")
+    return choices.pop() if choices else None
+
+
 def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
     """Size, encode / decode / head time, time-vs-load curve, fidelity and agreement per rep."""
     folds = fold_dirs(cfg)
+    f_raw = f_raw_choice(folds)
     ws = WindowSet.load(work() / cfg.dataset.windows)
     table = Table.load(folds[0] / "table.npz")
     zoo = HeadZoo(folds[0])
@@ -182,6 +292,7 @@ def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
     # shortcut: periods above 64 ms (ECG: 8.2 s per window) are timed at 64 ms, where the CPU is
     # already cold (ADR 0004 §4); timing at the true period would take hours, rerun it on the Pi
     period = min(1000.0 * ws.window_n / ws.sample_rate_hz, 64.0)
+    core_before = core_metadata(p_core())  # throttle counts before the timing runs
     profiles, curves = profile_menu(reps, zoo, sample, repeats, period_ms=period)
     scored = ev.scored_fold(folds[0], seed=int(cfg.seed))
     plan = CostModel(Profiles.from_list(profiles), Overheads(), energy_of(cfg), prices_of(cfg))
@@ -222,7 +333,13 @@ def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
             "python": platform.python_version(),
         },
         "energy_source": "modelled",
-        "timing": {"duty_cycle_period_ms": period, "governor": _governor()},
+        "timing": {
+            "duty_cycle_period_ms": period,
+            "governor": _governor(),
+            # frequency cap, turbo, cpu.max and throttle counts around the run (ADR 0028 D)
+            "core_before": core_before,
+            "core_after": core_metadata(p_core()),
+        },
         "profiles": [p.model_dump() for p in profiles],
         "overheads": asdict(overheads),
         "busy": busy,
@@ -267,7 +384,7 @@ def e1_profile(cfg: DictConfig, repeats: int = 30) -> dict:
         "io_load_exponent": io_exponent,
         "io_excess_ms/load0": io_excess[0.0],
         "io_excess_ms/load0.8": io_excess[0.8],
-        "f_raw": str(cfg.dataset.f_raw),
+        "f_raw": f_raw or str(cfg.dataset.f_raw),
         "bottleneck": str(cfg.dataset.bottleneck),
     }
     r6 = table.rep_ids.index("r6_bottleneck") if "r6_bottleneck" in table.rep_ids else 1
@@ -335,7 +452,6 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0912, PLR0915 - one rec
     """Held-out risk of V0 / V1 / V2 across α and folds (H2a, H2b)."""
     profiles, overheads = load_profiles()
     period = window_period_ms(cfg)
-    rng = np.random.default_rng([int(cfg.seed), 2])
     alphas = tuple(cfg.alphas)
     rows: list[dict[str, Any]] = []
     pooled: dict[tuple[float, str], tuple[list[np.ndarray], list[np.ndarray]]] = {}
@@ -467,7 +583,11 @@ def e2_certificate(cfg: DictConfig) -> dict:  # noqa: PLR0912, PLR0915 - one rec
     frame = pd.DataFrame(rows)
     summary: dict[str, Any] = {"n_folds": int(frame["fold"].nunique())}
     for (alpha, variant), (losses, blocks_) in pooled.items():
-        lo, hi = stats.block_bootstrap_ci(np.concatenate(losses), np.concatenate(blocks_), rng)
+        lo, hi = stats.block_bootstrap_ci(
+            np.concatenate(losses),
+            np.concatenate(blocks_),
+            ci_rng(int(cfg.seed), 2, alpha, variant),
+        )
         sub = frame[(frame.alpha == alpha) & (frame.variant == variant)]
         tag = f"{variant}/a{alpha:g}"
         summary[f"{tag}/risk_mean"] = float(sub.risk.mean())
@@ -519,20 +639,30 @@ _CTX: dict[str, ev.FoldCtx] = {}
 
 def _cell_job(args: tuple) -> list[tuple[int, list[dict]]]:
     """A chunk of cells of one fold and one sensor count: (job index, rows) per cell."""
-    fold, cells, cfg_dict, which, mission, edge_slowdown, only = args
+    fold, cells, cfg_dict, which, mission, edge_slowdown, only, edge_profile = args
     n_sensors = cells[0][1].n_sensors
-    key = f"{fold}|{edge_slowdown}|{cfg_dict['profile']['prices']['name']}|{n_sensors}"
+    key = (
+        f"{fold}|{edge_slowdown}|{cfg_dict['profile']['prices']['name']}|{n_sensors}|{edge_profile}"
+    )
     if key not in _CTX:  # one context per worker process, fold and duty cycle
         from omegaconf import OmegaConf
 
         _CTX.clear()  # chunks arrive grouped by (fold, sensors): an old context is not needed
         cfg = OmegaConf.create(cfg_dict)
-        profiles, overheads = load_profiles(edge_slowdown=edge_slowdown, n_sensors=n_sensors)
+        edge = None if edge_profile is None else Path(edge_profile)
+        profiles, overheads = load_profiles(
+            edge_slowdown=edge_slowdown, n_sensors=n_sensors, edge_profile=edge
+        )
+        head, dec = (  # measured on the slow edge, in the order of this fold's representations
+            (None, None)
+            if edge is None
+            else edge_head_ms(edge, Table.load(Path(fold) / "table.npz").rep_ids, n_sensors)
+        )
         _CTX[key] = ev.load_fold(
             Path(fold), profiles, overheads, prices_of(cfg), energy_of(cfg), tuple(cfg.alphas),
             cfg.delta, cfg_dict["_period_ms"], seed=int(cfg_dict["seed"]),
             windows_path=work() / cfg_dict["dataset"]["windows"] if which == "main" else None,
-            edge_slowdown=edge_slowdown,
+            edge_slowdown=edge_slowdown, edge_head_ms=head, edge_dec_ms=dec,
         )  # fmt: skip
     out = []
     for i, cell in cells:
@@ -556,6 +686,16 @@ def grid_cells(cfg: DictConfig, alphas: tuple[float, ...] | None = None) -> list
     ]
 
 
+def warm_fold_caches(cfg: DictConfig, folds: list[Path]) -> None:
+    """Predictor, ĝ_z and committee scores of each fold, computed one fold at a time and cached
+    next to it, so the grid workers only load them."""
+    windows = work() / cfg.dataset.windows
+    for f in folds:
+        table = ev.scored_fold(f, "mlp", int(cfg.seed)).table
+        ev.latent_scores(f, table, windows, "mlp", int(cfg.seed))
+        ev.committee_scores(f, table, windows, "mlp", int(cfg.seed))
+
+
 def run_grid(
     cfg: DictConfig,
     cells: list[ev.Cell],
@@ -563,10 +703,13 @@ def run_grid(
     edge_slowdown: float = 1.0,
     max_folds: int | None = None,
     only: tuple[str, ...] = (),
+    edge_profile: Path | None = None,
 ) -> pd.DataFrame:
     cfg_dict = {**as_dict(cfg), "_period_ms": window_period_ms(cfg)}
     folds = fold_dirs(cfg)[:max_folds]
     workers = int(cfg.workers)
+    if which == "main":  # fill the per-fold caches once here: on fresh folds every worker would
+        warm_fold_caches(cfg, folds)  # load all windows at once (OOM-killed on 2026-11-10)
     # Chunks never mix folds or sensor counts, so a worker builds a fold context once per chunk
     # instead of once per (fold, sensors) it ever meets; about eight chunks per worker keep the
     # pool's tail short (a build is ~0.4 s, a cell ~2 s on PU). Rows are put back in fold × cell
@@ -577,7 +720,16 @@ def run_grid(
         groups.setdefault((f, c.n_sensors), []).append((i, c))
     size = max(1, math.ceil(len(indexed) / (8 * workers)))
     jobs = [
-        (str(f), group[k : k + size], cfg_dict, which, cfg.profile.mission, edge_slowdown, only)
+        (
+            str(f),
+            group[k : k + size],
+            cfg_dict,
+            which,
+            cfg.profile.mission,
+            edge_slowdown,
+            only,
+            None if edge_profile is None else str(edge_profile),
+        )
         for (f, _), group in groups.items()
         for k in range(0, len(group), size)
     ]
@@ -586,16 +738,34 @@ def run_grid(
     return pd.DataFrame([r for _, rows in done for r in rows])
 
 
+def known_policies(cfg: DictConfig, which: str) -> set[str]:
+    """Policy names `ev.policies` builds for this dataset's first fold (ADR 0028 fix 10)."""
+    profiles, overheads = load_profiles()
+    ctx = ev.load_fold(
+        fold_dirs(cfg)[0], profiles, overheads, prices_of(cfg), energy_of(cfg), tuple(cfg.alphas),
+        cfg.delta, window_period_ms(cfg), seed=int(cfg.seed),
+        windows_path=work() / cfg.dataset.windows,
+    )  # fmt: skip
+    return set(ev.policies(ctx, grid_cells(cfg)[0], cfg.profile.mission, which))
+
+
 def stored_or_run(
-    cfg: DictConfig, name: str, run: Callable[[tuple[str, ...]], pd.DataFrame]
+    cfg: DictConfig,
+    name: str,
+    run: Callable[[tuple[str, ...]], pd.DataFrame],
+    which: str = "main",
+    edge_profile: Path | None = None,
 ) -> pd.DataFrame:
     """With `reuse=true`, re-analyse the stored per-cell results instead of simulating again;
     `add_policies=[…]` then simulates only those policies and replaces their stored rows."""
-    frame = load_stored(cfg, name) if cfg.get("reuse") else None
+    frame = load_stored(cfg, name, edge_profile) if cfg.get("reuse") else None
     if frame is None:
         return run(())
     add = tuple(cfg.get("add_policies") or ())
     if add:
+        unknown = sorted(set(add) - known_policies(cfg, which))
+        if unknown:
+            raise ValueError(f"add_policies: unknown policies {unknown}")
         frame = pd.concat([frame[~frame.policy.isin(add)], run(add)], ignore_index=True)
     return frame
 
@@ -647,6 +817,38 @@ def reduction(
     }
 
 
+def red(
+    frame: pd.DataFrame, ours: str, theirs: str, seed: int, block: int, metric: str = "cost"
+) -> dict:
+    """`reduction` with its own Generator per (block, pair, metric): see `ci_rng`."""
+    return reduction(
+        frame, ours, theirs, ci_rng(seed, block, 0.0, f"{ours}|{theirs}|{metric}"), metric
+    )
+
+
+def x_reduction(
+    frame: pd.DataFrame, ours: str, theirs: str, seed: int, block: int, metric: str = "cost"
+) -> tuple[dict, list[str]]:
+    """Exploratory `red`: only over the folds where both policies have rows (ADR 0028 fix 9), so a
+    policy missing on some folds cannot stop the summary. Returns the reduction and the folds
+    left out; with no common fold the statistics are NaN."""
+    have = [set(frame[frame.policy == p].fold) for p in (ours, theirs)]
+    common = have[0] & have[1]
+    missing = sorted(set(frame.fold) - common)
+    if not common:
+        nan = float("nan")
+        return {"mean": nan, "ci_lo": nan, "ci_hi": nan, "geo_ratio": nan, "per_fold": [],
+                "folds": [], "unit": "folds"}, missing  # fmt: skip
+    return red(frame[frame.fold.isin(common)], ours, theirs, seed, block, metric), missing
+
+
+def put_x(out: dict[str, Any], key: str, value: float, missing: list[str]) -> None:
+    """`out[key] = value`, and `<key>/missing_folds` when folds were left out."""
+    out[key] = value
+    if missing:
+        out[f"{key}/missing_folds"] = missing
+
+
 def dominant_rep(frame: pd.DataFrame, policy: str) -> pd.Series:
     """The most-used representation of a policy in every (fold, cell)."""
     share_cols = [c for c in frame.columns if c.startswith("share/")]
@@ -685,7 +887,7 @@ def e3_main(cfg: DictConfig) -> dict:
     Under another price preset (`profile=battery_node`, …) the run is written to
     `experiments/e3_<preset>/`; `max_folds=5` limits it to the first folds.
     """
-    rng = np.random.default_rng([int(cfg.seed), 3])
+    seed = int(cfg.seed)
     preset = str(cfg.profile.prices.name)
     name = "e3" if preset == "metered_cellular" else f"e3_{preset}"
     frame = stored_or_run(
@@ -699,10 +901,10 @@ def e3_main(cfg: DictConfig) -> dict:
     frame, gate = add_auto_policy(cfg, frame)
     # share of all cells; cells where the oracle sent nothing count, but for no representation
     dom = dominant_rep(frame, "oracle").value_counts(normalize=True).drop("none", errors="ignore")
-    h1_cost = reduction(frame, "oracle", "b4_best_single", rng)
-    h3_cost = reduction(frame, "kai_s1_v0", "b4_best_single", rng)
+    h1_cost = red(frame, "oracle", "b4_best_single", seed, 3)
+    h3_cost = red(frame, "kai_s1_v0", "b4_best_single", seed, 3)
     bursty = frame[frame.link != "static"]
-    h3_slo = reduction(bursty, "kai_s1_v0", "b5_context_blind", rng, "slo_violation")
+    h3_slo = red(bursty, "kai_s1_v0", "b5_context_blind", seed, 3, "slo_violation")
     summary: dict[str, Any] = {
         "n_folds": int(frame.fold.nunique()),
         "n_cells": len(frame.drop_duplicates(CELL_KEYS)),
@@ -760,9 +962,8 @@ def e3_main(cfg: DictConfig) -> dict:
         summary["x/kai_s1_auto/n_static_folds"] = sum(not a >= AUTO_GATE_AUC for a in gate.values())
     for policy in ("kai_s1_v0_static", "kai_s1_cascade", "kai_s1_auto"):
         if policy in set(frame.policy):
-            summary[f"x/{policy}/cost_reduction_vs_b4"] = reduction(
-                frame, policy, "b4_best_single", rng
-            )["mean"]
+            r, miss = x_reduction(frame, policy, "b4_best_single", seed, 3)
+            put_x(summary, f"x/{policy}/cost_reduction_vs_b4", r["mean"], miss)
             summary[f"x/{policy}/probe_rate"] = (
                 float(frame[frame.policy == policy].probe_rate.mean())
                 if "probe_rate" in frame
@@ -779,14 +980,13 @@ def e3_main(cfg: DictConfig) -> dict:
     ):
         if policy not in set(frame.policy):
             continue
-        vs_b4 = reduction(frame, policy, "b4_best_single", rng)
-        summary[f"X25/{policy}/cost_reduction_vs_b4"] = vs_b4["mean"]
+        vs_b4, miss = x_reduction(frame, policy, "b4_best_single", seed, 3)
+        put_x(summary, f"X25/{policy}/cost_reduction_vs_b4", vs_b4["mean"], miss)
         summary[f"X25/{policy}/cost_reduction_vs_b4_ci_lo"] = vs_b4["ci_lo"]
         summary[f"X25/{policy}/cost_reduction_vs_b4_ci_hi"] = vs_b4["ci_hi"]
-        summary[f"X25/{policy}/cost_reduction_vs_kai"] = reduction(frame, policy, "kai_s1_v0", rng)[
-            "mean"
-        ]
-    summary |= x26_summary(cfg, frame, rng)
+        vs_kai, miss = x_reduction(frame, policy, "kai_s1_v0", seed, 3)
+        put_x(summary, f"X25/{policy}/cost_reduction_vs_kai", vs_kai["mean"], miss)
+    summary |= x26_summary(cfg, frame, seed)
     return finish(name, cfg, summary, frame)
 
 
@@ -797,7 +997,7 @@ def fill_required_bytes(cfg: DictConfig, frame: pd.DataFrame) -> pd.DataFrame:
     """Rows reused from runs before ADR 0026 carry no `required_bytes`. Recompute them for the
     first fold only (all `x26_summary` reads) from the same policy builders; no simulation."""
     if "required_bytes" not in frame:
-        return frame
+        frame = frame.assign(required_bytes=np.nan)
     first = frame.fold.iloc[0]
     # kai_s1_auto is rebuilt from the filled rows by `add_auto_policy`
     todo = (frame.fold == first) & frame.required_bytes.isna() & (frame.policy != "kai_s1_auto")
@@ -821,29 +1021,51 @@ def fill_required_bytes(cfg: DictConfig, frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def x26_summary(cfg: DictConfig, frame: pd.DataFrame, rng: np.random.Generator) -> dict[str, Any]:
+def rss_summary(cfg: DictConfig) -> dict[str, Any]:
+    """Peak RSS above a numpy-only interpreter (ADR 0028 §3 A), once per dataset on the first fold,
+    each in a fresh subprocess; empty if the dataset has no fold yet."""
+    from kai.profile.memory import baseline_rss_bytes, peak_rss_bytes
+
+    folds = fold_dirs(cfg)[:1]
+    if not folds:
+        return {}
+    return {
+        "rss/f_raw": peak_rss_bytes("f_raw", folds[0]),
+        "rss/kai_classical": peak_rss_bytes("kai_classical", folds[0]),
+        "rss/baseline": baseline_rss_bytes(),
+    }
+
+
+def x26_summary(cfg: DictConfig, frame: pd.DataFrame, seed: int) -> dict[str, Any]:
     """Exploratory (ADR 0026), not part of H3; every key is present only if its policy ran."""
     out: dict[str, Any] = {}
     have = set(frame.policy)
     for policy in X26_KAI:
         if policy not in have:
             continue
-        vs_b4 = reduction(frame, policy, "b4_best_single", rng)
-        out[f"X26/{policy}/cost_reduction_vs_b4"] = vs_b4["mean"]
+        vs_b4, miss = x_reduction(frame, policy, "b4_best_single", seed, 3)
+        put_x(out, f"X26/{policy}/cost_reduction_vs_b4", vs_b4["mean"], miss)
         out[f"X26/{policy}/cost_reduction_vs_b4_ci_lo"] = vs_b4["ci_lo"]
         out[f"X26/{policy}/cost_reduction_vs_b4_ci_hi"] = vs_b4["ci_hi"]
-        out[f"X26/{policy}/cost_reduction_vs_kai"] = reduction(frame, policy, "kai_s1_v0", rng)[
-            "mean"
-        ]
+        vs_kai, miss = x_reduction(frame, policy, "kai_s1_v0", seed, 3)
+        put_x(out, f"X26/{policy}/cost_reduction_vs_kai", vs_kai["mean"], miss)
     if "b14_edge_inference" in have:
         b14 = "b14_edge_inference"
-        out[f"X26/{b14}/cost_reduction_vs_b4"] = reduction(frame, b14, "b4_best_single", rng)[
-            "mean"
-        ]
+        r, miss = x_reduction(frame, b14, "b4_best_single", seed, 3)
+        put_x(out, f"X26/{b14}/cost_reduction_vs_b4", r["mean"], miss)
         kai = [p for p in X26_KAI if p in have]
-        if kai:  # ratio of grid totals
-            tot = frame[frame.policy.isin([b14, *kai])].groupby("policy").cost.sum()
-            out[f"X26/{b14}/cost_vs_best_committee"] = float(tot[b14] / tot[kai].min())
+        if kai:  # ratio of grid totals, over the folds every one of these policies has
+            names = [b14, *kai]
+            common = set.intersection(*(set(frame[frame.policy == p].fold) for p in names))
+            sub = frame[frame.policy.isin(names) & frame.fold.isin(common)]
+            tot = sub.groupby("policy").cost.sum()
+            if len(tot) == len(names):
+                out[f"X26/{b14}/cost_vs_best_committee"] = float(tot[b14] / tot[kai].min())
+            if common != set(frame.fold):
+                out[f"X26/{b14}/cost_vs_best_committee/missing_folds"] = sorted(
+                    set(frame.fold) - common
+                )
+    out |= rss_summary(cfg)
     folds = fold_dirs(cfg)[:1]
     if folds:  # sizes are the bytes of the stored model files, the first fold's
         out |= {f"X26/size/{k}": v for k, v in ev.model_bytes(folds[0]).items()}
@@ -856,7 +1078,7 @@ def x26_summary(cfg: DictConfig, frame: pd.DataFrame, rng: np.random.Generator) 
 
 def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -> dict:
     """Mechanism ablations and the within-family comparison (H4, H5)."""
-    rng = np.random.default_rng([int(cfg.seed), 5])
+    seed = int(cfg.seed)
     cells = grid_cells(cfg, alphas=(0.05,))
     frame = stored_or_run(
         cfg,
@@ -880,18 +1102,24 @@ def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -
         "H5/cost_reduction_vs_best_family": float(h5.mean()),
     }
     h5_units, summary["test_unit"] = replication_units(h5)
-    summary["H5/ci_lo"], summary["H5/ci_hi"] = finite_ci(h5_units, rng)
+    summary["H5/ci_lo"], summary["H5/ci_hi"] = finite_ci(
+        h5_units, ci_rng(seed, 5, 0.0, "H5|kai_s1_v0|best_family")
+    )
     summary["H4_pass"] = bool(changed >= 0.15 and slo["no_encode_cost"] > slo["kai_s1_v0"])
     summary["H5_pass"] = bool(h5.mean() >= 0.10)
     for policy in sorted(frame.policy.unique()):
-        r = reduction(frame, "kai_s1_v0", policy, rng) if policy != "kai_s1_v0" else None
+        r, miss = (
+            x_reduction(frame, "kai_s1_v0", policy, seed, 5)
+            if policy != "kai_s1_v0"
+            else (None, [])
+        )
         summary[f"cost_total/{policy}"] = float(total[policy].mean())
         summary[f"risk_certified/{policy}"] = float(
             frame[frame.policy == policy].risk_certified.mean()
         )
         summary[f"slo/{policy}"] = float(frame[frame.policy == policy].slo_violation.mean())
         if r is not None:
-            summary[f"kai_cost_reduction_vs/{policy}"] = r["mean"]
+            put_x(summary, f"kai_cost_reduction_vs/{policy}", r["mean"], miss)
     summary["per_fold"] = {"H5": h5.tolist()}
     summary["per_fold_ids"] = [str(f) for f in h5.index]
     return finish(name, cfg, summary, frame)
@@ -901,14 +1129,16 @@ def e5_ablation(cfg: DictConfig, edge_slowdown: float = 1.0, name: str = "e5") -
 
 
 def _bundle_for(cfg: DictConfig) -> tuple[Bundle, Path, WindowSet, Table, np.ndarray]:
-    """Build (or reuse) the bundle of the first fold and load it with the local profiles."""
+    """Build (or reuse) the bundle of the first fold and load it with the local profiles (edge
+    times from the profile E1 just wrote when `KAI_PROFILE` names a slow-edge run)."""
     from kai.bench.bundle import BundleMeta, build_bundle
     from kai.edge.bundle import load_bundle
 
     fold = fold_dirs(cfg)[0]
     ws = WindowSet.load(work() / cfg.dataset.windows)
     meta = BundleMeta.from_fold(fold, ws.dataset_id, ws.sample_rate_hz)
-    profiles, overheads = load_profiles()
+    edge = profile_path() if profile_path() != local_profile_path() else None
+    profiles, overheads = load_profiles(edge_profile=edge)
     path = build_bundle(
         fold, work() / "artifacts" / "bundles", profiles, overheads, meta,
         prices_of(cfg), energy_of(cfg), cfg.profile.mission,
@@ -1027,6 +1257,15 @@ def _boundaries(
     return out, n_theory
 
 
+def _require_local_profile(name: str) -> None:
+    """E4, E7 and E7d compare the model with this laptop's measurements: a slow-edge profile
+    (`KAI_PROFILE=slow400`) would silently change what they compare against."""
+    if (profile := os.environ.get("KAI_PROFILE", "local")) != "local":
+        raise RuntimeError(
+            f"{name} must use the laptop profile; unset KAI_PROFILE (is {profile!r})"
+        )
+
+
 def e4_phase(
     cfg: DictConfig,
     n_windows: int = 25,
@@ -1039,6 +1278,7 @@ def e4_phase(
 
     `reuse=True` re-analyses the stored measurements instead of measuring again.
     """
+    _require_local_profile("e4")
     stored = load_stored(cfg, "e4") if reuse or cfg.get("reuse") else None
     if stored is not None:
         frame = stored
@@ -1196,6 +1436,8 @@ def e7_sim2real(cfg: DictConfig, n_windows: int | None = None) -> dict:
     from kai.link import traces as tr
     from kai.link.des import Scenario, Workload, simulate
 
+    _require_local_profile("e7")
+
     bundle, path, ws, table, test = _bundle_for(cfg)
     prices, energy = prices_of(cfg), energy_of(cfg)
     model = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
@@ -1254,6 +1496,7 @@ def e7d_docker(cfg: DictConfig, delay_ms: float = 10.0, alpha: float = 0.05) -> 
     from kai.link import traces as tr
     from kai.link.des import Scenario, Workload, simulate
 
+    _require_local_profile("e7d")
     bundle, _, _, table, _ = _bundle_for(cfg)
     prices, energy = prices_of(cfg), energy_of(cfg)
     model = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
@@ -1428,8 +1671,8 @@ def e5pi_ablation_slow_edge(cfg: DictConfig) -> dict[str, Any]:
 
 SLOW_EDGE = (10.0, 100.0)  # ADR 0027, fixed before computing
 SLOW_POLICIES = (
-    "b4_best_single", "b5_context_blind", "b14_edge_inference", "kai_s1_v0", "kai_s1_v0_late",
-    "kai_s1_v0_lldefer", "kai_s1_v0_abc", "kai_s1_v0_ab_zsel", *X26_KAI, "oracle",
+    "b1_raw", "b4_best_single", "b5_context_blind", "b14_edge_inference", "kai_s1_v0",
+    "kai_s1_v0_late", "kai_s1_v0_lldefer", "kai_s1_v0_abc", "kai_s1_v0_ab_zsel", *X26_KAI, "oracle",
 )  # fmt: skip
 
 
@@ -1439,7 +1682,6 @@ def e3s_slow_edge(cfg: DictConfig) -> dict[str, Any]:
     folds, `SLOW_POLICIES` only. One run per k in `SLOW_EDGE`, written to `e3_slow<k>`."""
     out: dict[str, Any] = {}
     for k in SLOW_EDGE:
-        rng = np.random.default_rng([int(cfg.seed), 3, int(k)])
         p_cpu_w = float(cfg.profile.energy.p_cpu_w) / k
         c = OmegaConf.merge(cfg, {"profile": {"energy": {"p_cpu_w": p_cpu_w}}, "max_folds": 5})
         assert isinstance(c, DictConfig)
@@ -1459,9 +1701,9 @@ def e3s_slow_edge(cfg: DictConfig) -> dict[str, Any]:
             # b1_raw was added after the first results (ADR 0027 addendum)
             for ref in ("b4_best_single", "b14_edge_inference", "b1_raw"):
                 if ref in have and policy != ref:
-                    r = reduction(frame, policy, ref, rng)
+                    r, miss = x_reduction(frame, policy, ref, int(cfg.seed), 31)
                     tag = "vs_" + ref.split("_")[0]
-                    s[f"{policy}/cost_reduction_{tag}"] = r["mean"]
+                    put_x(s, f"{policy}/cost_reduction_{tag}", r["mean"], miss)
                     s[f"{policy}/cost_reduction_{tag}_ci_lo"] = r["ci_lo"]
                     s[f"{policy}/cost_reduction_{tag}_ci_hi"] = r["ci_hi"]
         s["cost_total_per_fold"] = totals(frame).mean().to_dict()
@@ -1469,6 +1711,290 @@ def e3s_slow_edge(cfg: DictConfig) -> dict[str, Any]:
         finish(name, c, s, frame)
         out[name] = s
     return out
+
+
+# --- ADR 0028 §2, §3 C and D: slow-edge crossover and the measured slow edge --------------------
+
+K_GRID = (1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 30.0, 100.0)  # fixed before computing
+C_POLICIES = (
+    "kai_s1_v0", "kai_s1_v0_classical", "b14_edge_inference", "b4_best_single", "b1_raw", "oracle",
+)  # fmt: skip
+C_OURS = ("kai_s1_v0", "kai_s1_v0_classical")
+C_REFS = ("b14_edge_inference", "b4_best_single", "b1_raw")
+C_COST_TERMS = (
+    "cost",
+    "cost_bytes",
+    "cost_energy_cpu",
+    "cost_energy_link",
+    "cost_cpu",
+    "cost_late",
+)
+CAP_COLUMNS = {"cap5": "cost_cap5", "cap10": "cost", "cap20": "cost_cap20"}  # default cap is 10
+ENERGY_SCALES = (0.3, 1.0, 3.0)
+STRUCTURAL_WIDTH = 1e-3  # a CI narrower than this is labelled structural (ADR 0028 §2)
+
+
+def _variant_cost(j: pd.DataFrame, suffix: str, variant: str | float) -> pd.Series:
+    """Cost column of a joined frame under a cap variant (a CAP_COLUMNS key) or energy scale e
+    (CPU energy × e, everything else as simulated)."""
+    if isinstance(variant, str):
+        return j[CAP_COLUMNS[variant] + suffix]
+    return j["cost" + suffix] + (variant - 1.0) * j["cost_energy_cpu" + suffix]
+
+
+def feasible_reduction(
+    frame: pd.DataFrame, ours: str, ref: str, variant: str | float = "cap10",
+    rng: np.random.Generator | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """1 - C_ours/C_ref per fold over the cells where both policies have edge utilisation < 1
+    (ADR 0028 §2). A fold without such a cell is left out and listed in `missing_folds`.
+    With `rng`, a BCa CI over folds; `structural` marks a CI narrower than STRUCTURAL_WIDTH."""
+    keys = ["fold", *CELL_KEYS]
+    cols = ["edge_util", "cost", "cost_cap5", "cost_cap20", "cost_energy_cpu"]
+    a = frame[frame.policy == ours].set_index(keys)[cols]
+    b = frame[frame.policy == ref].set_index(keys)[cols]
+    j = a.join(b, how="inner", lsuffix="_o", rsuffix="_r")
+    j = j[(j.edge_util_o < 1.0) & (j.edge_util_r < 1.0)]
+    co, cr = _variant_cost(j, "_o", variant), _variant_cost(j, "_r", variant)
+    so, sr = co.groupby(level="fold").sum(), cr.groupby(level="fold").sum()
+    per_fold = fold_reduction(so, sr) if len(so) else pd.Series(dtype=float)
+    out: dict[str, Any] = {
+        "mean": float(per_fold.mean()) if len(per_fold) else float("nan"),
+        "n_cells": len(j),
+        "per_fold": per_fold.tolist(),
+        "folds": [str(f) for f in per_fold.index],
+        "missing_folds": sorted(set(frame.fold) - set(per_fold.index)),
+    }
+    if rng is not None:
+        lo, hi = (
+            finite_ci(per_fold.to_numpy(dtype=np.float64), rng) if len(per_fold) else (np.nan,) * 2
+        )
+        out |= {"ci_lo": lo, "ci_hi": hi}
+        out["structural"] = bool(np.isfinite(lo) and np.isfinite(hi) and hi - lo < STRUCTURAL_WIDTH)
+    return out
+
+
+def c_summary(frame: pd.DataFrame, seed: int, block: int, k: float) -> dict[str, Any]:
+    """Feasible-cell comparisons, infeasible shares, cost terms and sensitivities of one run of
+    the C policies. Every key comes from the stored rows; nothing here is a test."""
+    have = set(frame.policy)
+    s: dict[str, Any] = {
+        "n_folds": int(frame.fold.nunique()),
+        "n_cells": len(frame.drop_duplicates(CELL_KEYS)),
+    }
+    for policy in sorted(have):
+        sub = frame[frame.policy == policy]
+        feasible = sub[sub.edge_util < 1.0]  # NaN utilisation is not feasible
+        s[f"infeasible_share/{policy}"] = float(1.0 - len(feasible) / len(sub))
+        for term in C_COST_TERMS:
+            s[f"cost_terms/{policy}/{term}"] = (
+                float(feasible[term].mean()) if len(feasible) else float("nan")
+            )
+        s[f"edge_util_mean/{policy}"] = float(sub.edge_util.mean())
+    for ours in C_OURS:
+        for ref in C_REFS:
+            if ours not in have or ref not in have:
+                continue
+            tag = f"{ours}/vs_{ref.split('_')[0]}"
+            rng = ci_rng(seed, block, k, f"{ours}|{ref}|cap10")
+            r = feasible_reduction(frame, ours, ref, "cap10", rng)
+            for key in ("mean", "ci_lo", "ci_hi", "structural", "per_fold", "folds", "n_cells"):
+                s[f"cmp/{tag}/{key}"] = r[key]
+            if r["missing_folds"]:
+                s[f"cmp/{tag}/missing_folds"] = r["missing_folds"]
+            for cap in ("cap5", "cap20"):
+                s[f"{cap}/{tag}/mean"] = feasible_reduction(frame, ours, ref, cap)["mean"]
+            for e in ENERGY_SCALES:
+                s[f"energy_e{e:g}/{tag}/mean"] = feasible_reduction(frame, ours, ref, e)["mean"]
+    return s
+
+
+def k_star(ks: np.ndarray, delta: np.ndarray) -> tuple[float | None, str]:
+    """Crossover of a Δ(k) curve (ADR 0028 §3 C): the smallest grid k with Δ > 0 for every larger
+    grid k, interpolated linearly in log k between the last grid point with Δ ≤ 0 and the first
+    after it. Grid points with undefined Δ (no feasible cell) are skipped. Returns (value, label):
+    label "> 100" (value None) when the largest defined point has Δ ≤ 0; "<= 1" (value = the
+    smallest defined k) when Δ > 0 from the start; "undefined" when no point is defined."""
+    ok = ~np.isnan(delta)
+    ks, delta = ks[ok], delta[ok]
+    if not len(ks):
+        return None, "undefined"
+    pos = delta > 0
+    if not pos[-1]:
+        return None, f"> {ks[-1]:g}" if len(ks) else "undefined"
+    i = len(pos) - 1
+    while i > 0 and pos[i - 1]:
+        i -= 1
+    if i == 0:
+        return float(ks[0]), f"<= {ks[0]:g}"
+    d0, d1 = delta[i - 1], delta[i]
+    t = d0 / (d0 - d1) if np.isfinite(d0) and np.isfinite(d1) else 1.0  # infinite: at the grid k
+    return float(np.exp(np.log(ks[i - 1]) + t * (np.log(ks[i]) - np.log(ks[i - 1])))), "crossing"
+
+
+def sign_changes(ks: np.ndarray, delta: np.ndarray) -> list[float]:
+    """Every k (log-linear) where Δ(k) changes sign, defined grid points only."""
+    ok = ~np.isnan(delta)
+    ks, delta = ks[ok], delta[ok]
+    out = []
+    for i in range(1, len(ks)):
+        d0, d1 = delta[i - 1], delta[i]
+        if (d0 > 0) != (d1 > 0):
+            t = d0 / (d0 - d1) if np.isfinite(d0) and np.isfinite(d1) else 1.0
+            out.append(float(np.exp(np.log(ks[i - 1]) + t * (np.log(ks[i]) - np.log(ks[i - 1])))))
+    return out
+
+
+def _folds_used(delta: np.ndarray) -> np.ndarray:
+    """Folds whose Δ is defined at every grid k that any fold defines (a k no fold defines, e.g.
+    b14 infeasible everywhere, is skipped by `k_star` and cannot exclude all folds)."""
+    return ~np.isnan(delta[:, ~np.isnan(delta).all(axis=0)]).any(axis=1)
+
+
+def _mean_curve(delta: np.ndarray) -> np.ndarray:
+    """Mean over `_folds_used` of a fold × k matrix; NaN at a k no fold defines, and everywhere
+    if no fold is used."""
+    used = delta[_folds_used(delta)]
+    return used.mean(axis=0) if len(used) else np.full(delta.shape[1], np.nan)
+
+
+def kstar_summary(
+    ks: tuple[float, ...],
+    folds: list[str],
+    delta: np.ndarray,
+    seed: int,
+    name: str,
+    n_boot: int = 2000,
+) -> dict[str, Any]:  # fmt: skip
+    """k* of one policy from its fold × k matrix of Δ_f(k): per fold, of the mean curve, with a
+    fold-bootstrap CI of the mean curve's crossing. Descriptive; no test."""
+    grid = np.asarray(ks, dtype=float)
+    mean = _mean_curve(delta)
+    defined = ~np.isnan(delta)
+    used = _folds_used(delta)
+    val, label = k_star(grid, mean)
+    per_fold = [k_star(grid, d) for d in delta]
+    rng = ci_rng(seed, 34, 0.0, f"kstar|{name}")
+    boots = [
+        k_star(grid, _mean_curve(delta[rng.integers(0, len(delta), len(delta))]))
+        for _ in range(n_boot)
+    ]
+    num = np.array([v for v, lab in boots if v is not None])
+    numeric = [v for v, _ in per_fold if v is not None]
+    return {
+        "delta_per_fold": delta.T.tolist(),  # [k][fold]
+        "delta_mean": mean.tolist(),
+        "folds": folds,
+        "n_folds_used": int(used.sum()),
+        "folds_excluded": [f for f, u in zip(folds, used, strict=True) if not u],
+        "n_folds_defined_per_k": defined.sum(axis=0).tolist(),
+        "k_star_mean_curve": val,
+        "k_star_mean_curve_label": label,
+        "sign_changes_mean_curve": sign_changes(grid, mean),
+        "k_star_per_fold": [v for v, _ in per_fold],
+        "k_star_per_fold_label": [lab for _, lab in per_fold],
+        "sign_changes_per_fold": [sign_changes(grid, d) for d in delta],
+        "k_star_fold_range": [min(numeric), max(numeric)] if numeric else None,
+        "k_star_ci_lo": float(np.quantile(num, 0.025)) if len(num) else None,
+        "k_star_ci_hi": float(np.quantile(num, 0.975)) if len(num) else None,
+        "k_star_boot_n_numeric": len(num),
+        "k_star_boot_n": n_boot,
+        "k_star_boot_share_beyond_grid": float(np.mean([lab.startswith(">") for _, lab in boots])),
+    }
+
+
+def e3k_crossover(cfg: DictConfig) -> dict[str, Any]:
+    """Exploratory (ADR 0028 §3 C): E3 on the C policies at every k in K_GRID (all edge times × k,
+    CPU power ÷ k), first 5 folds, one run per k in `e3_k<k>`; then `e3_kstar` with Δ_f(k) =
+    1 − C_Kai,f / C_b14,f over cells feasible for both and the crossover k* (descriptive).
+
+    `k_grid` (a subset of K_GRID) and `max_folds` shrink the sweep (the reduced run of 2026-11-12:
+    k = 1, 10, 100 on one fold); the summary records the grid and folds it used."""
+    seed, out = int(cfg.seed), {}
+    ks = tuple(float(k) for k in cfg.k_grid) if cfg.get("k_grid") else K_GRID
+    if not set(ks) <= set(K_GRID):
+        raise ValueError(f"k_grid {ks} must be a subset of the fixed grid {K_GRID}")
+    n_folds = int(cfg.max_folds) if cfg.get("max_folds") else 5
+    delta: dict[str, dict[float, pd.Series]] = {o: {} for o in C_OURS}
+    for k in ks:
+        p_cpu_w = float(cfg.profile.energy.p_cpu_w) / k
+        c = OmegaConf.merge(
+            cfg, {"profile": {"energy": {"p_cpu_w": p_cpu_w}}, "max_folds": n_folds}
+        )
+        assert isinstance(c, DictConfig)
+        name = f"e3_k{k:g}"
+        frame = stored_or_run(
+            c, name, lambda only, c=c, k=k: run_grid(  # type: ignore[misc]
+                c, grid_cells(c), "main", k, max_folds=n_folds, only=only or C_POLICIES
+            ),
+        )  # fmt: skip
+        s = {"edge_slowdown": k, "p_cpu_w": p_cpu_w, **c_summary(frame, seed, 32, k)}
+        finish(name, c, s, frame)
+        out[name] = s
+        for o in C_OURS:
+            if f"cmp/{o}/vs_b14/per_fold" in s:
+                delta[o][k] = pd.Series(
+                    s[f"cmp/{o}/vs_b14/per_fold"], index=s[f"cmp/{o}/vs_b14/folds"]
+                )
+    summary: dict[str, Any] = {"k_grid": list(ks), "max_folds": n_folds, "policies": list(C_OURS)}
+    for o, by_k in delta.items():
+        if not by_k:
+            continue
+        table = pd.DataFrame(by_k).reindex(columns=list(ks))
+        summary[o] = kstar_summary(
+            ks, [str(f) for f in table.index], table.to_numpy(float), seed, o
+        )
+    summary |= rss_summary(cfg)
+    out["e3_kstar"] = finish("e3_kstar", cfg, summary)
+    return out
+
+
+def slowdown_ratios(local: Path, edge: Path) -> tuple[float, dict[str, float]]:
+    """Per-operation measured slowdown edge/local (encode and head of every representation,
+    probe, predictor, selector), and its median s (ADR 0028 D1)."""
+    a, b = json.loads(local.read_text()), json.loads(edge.read_text())
+    ratios: dict[str, float] = {}
+    local_by = {p["rep_id"]: p for p in a["profiles"]}
+    for p in b["profiles"]:
+        for op in ("t_enc_ms", "t_head_ms"):
+            den = local_by.get(p["rep_id"], {}).get(op, 0.0)
+            if den > 0 and p[op] > 0:
+                ratios[f"{op.removesuffix('_ms')}/{p['rep_id']}"] = float(p[op] / den)
+    for op in ("t_probe_ms", "t_pred_ms", "t_sel_ms"):
+        if a["overheads"][op] > 0 and b["overheads"][op] > 0:
+            ratios[op.removesuffix("_ms")] = float(b["overheads"][op] / a["overheads"][op])
+    return float(np.median(list(ratios.values()))), ratios
+
+
+def e3d_measured(cfg: DictConfig) -> dict[str, Any]:
+    """Exploratory (ADR 0028 §3 D): E3 on the C policies with edge times measured on the slow
+    edge (`artifacts/profiles/slow400.json`), cloud times from `local.json`; CPU power ÷ s with s
+    the measured median slowdown, so energy per operation is unchanged. First 5 folds."""
+    edge = profile_file("slow400")
+    if not edge.exists():
+        raise FileNotFoundError(
+            f"{edge}: profile the slow edge first (KAI_PROFILE=slow400 kai exp e1)"
+        )
+    s_med, ratios = slowdown_ratios(local_profile_path(), edge)
+    p_cpu_w = float(cfg.profile.energy.p_cpu_w) / s_med
+    c = OmegaConf.merge(cfg, {"profile": {"energy": {"p_cpu_w": p_cpu_w}}, "max_folds": 5})
+    assert isinstance(c, DictConfig)
+    name = "e3_slow400"
+    frame = stored_or_run(
+        c, name, lambda only: run_grid(
+            c, grid_cells(c), "main", 1.0, max_folds=5, only=only or C_POLICIES, edge_profile=edge
+        ), edge_profile=edge,
+    )  # fmt: skip
+    q = np.quantile(list(ratios.values()), [0, 0.25, 0.5, 0.75, 1])
+    s = {
+        "edge_profile": edge.name,
+        "slowdown_s": s_med,
+        "slowdown_quantiles_min_q25_q50_q75_max": q.tolist(),
+        "slowdown_per_op": ratios,
+        "p_cpu_w": p_cpu_w,
+        **c_summary(frame, int(cfg.seed), 33, s_med),
+    }
+    return finish(name, c, s, frame, edge_profile=edge)
 
 
 def e10_privacy(cfg: DictConfig) -> dict[str, Any]:
@@ -1570,6 +2096,8 @@ EXPERIMENTS = (
     e5_ablation,
     e5pi_ablation_slow_edge,
     e3s_slow_edge,
+    e3k_crossover,
+    e3d_measured,
     e6_drift,
     e7_sim2real,
     e7d_docker,

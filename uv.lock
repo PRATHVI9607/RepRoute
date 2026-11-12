@@ -295,7 +295,7 @@ name = "cuda-bindings"
 version = "13.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "sys_platform != 'darwin'" },
+    { name = "cuda-pathfinder", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/65/11/1293429c1c3a3e19b551275e65efddd122a905bbe7e368816a59f3ef2a41/cuda_bindings-13.4.3-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bfbd3f7d4ac04dd41dc49121b9e408c8283992f47124c2290ecb79bbbadcca8e", size = 6488226, upload-time = "2026-09-23T02:22:00.578Z" },
@@ -322,43 +322,43 @@ wheels = [
 
 [package.optional-dependencies]
 cublas = [
-    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cublas", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cuda-runtime", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cufft", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "nvidia-cufile", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cuda-cupti", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 curand = [
-    { name = "nvidia-curand", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-curand", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cusolver = [
-    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-cusolver", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cublas", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cusolver", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cusparse", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cusparse", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-nvtx", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (sys_platform != 'linux' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 
 [[package]]
@@ -773,6 +773,7 @@ cloud = [
 cpu = [
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
     { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "torchaudio" },
 ]
 edge = [
     { name = "onnxruntime" },
@@ -780,6 +781,7 @@ edge = [
 gpu = [
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
     { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "torchaudio" },
 ]
 lab = [
     { name = "hydra-core" },
@@ -843,6 +845,8 @@ requires-dist = [
     { name = "torch", marker = "sys_platform == 'darwin' and extra == 'gpu'", specifier = ">=2.14,<2.15" },
     { name = "torch", marker = "sys_platform != 'darwin' and extra == 'cpu'", specifier = ">=2.14,<2.15", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "kai", extra = "cpu" } },
     { name = "torch", marker = "sys_platform != 'darwin' and extra == 'gpu'", specifier = ">=2.14,<2.15", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "kai", extra = "gpu" } },
+    { name = "torchaudio", marker = "extra == 'cpu'", specifier = ">=2.11,<2.12" },
+    { name = "torchaudio", marker = "extra == 'gpu'", specifier = ">=2.11,<2.12" },
     { name = "typer", specifier = ">=0.27" },
     { name = "zstandard", specifier = ">=0.25,<1" },
 ]
@@ -1215,7 +1219,7 @@ name = "nvidia-cublas"
 version = "13.1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-nvrtc", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cuda-nvrtc", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/a1/0bd24ee8c8d03adac032fd2909426a00c88f8c57961b1277ded97f91119f/nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5", size = 542848918, upload-time = "2026-04-08T18:46:22.985Z" },
@@ -1258,7 +1262,7 @@ name = "nvidia-cudnn-cu13"
 version = "9.24.0.43"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cublas", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ca/30/7c257e3d5cb4fecb147b93895c66e29c93f8e76d74b45bb418ff0587c4ec/nvidia_cudnn_cu13-9.24.0.43-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:a6812a554a1ff0413e9c52b84c26c050380649ab9615f9c16bded368ce9f421f", size = 650976863, upload-time = "2026-07-02T16:23:39.248Z" },
@@ -1271,7 +1275,7 @@ name = "nvidia-cufft"
 version = "12.0.0.61"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/ae/f417a75c0259e85c1d2f83ca4e960289a5f814ed0cea74d18c353d3e989d/nvidia_cufft-12.0.0.61-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2708c852ef8cd89d1d2068bdbece0aa188813a0c934db3779b9b1faa8442e5f5", size = 214053554, upload-time = "2025-09-04T08:31:38.196Z" },
@@ -1303,9 +1307,9 @@ name = "nvidia-cusolver"
 version = "12.0.4.66"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "sys_platform != 'darwin'" },
-    { name = "nvidia-cusparse", marker = "sys_platform != 'darwin'" },
-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cublas", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cusparse", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/c3/b30c9e935fc01e3da443ec0116ed1b2a009bb867f5324d3f2d7e533e776b/nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:02c2457eaa9e39de20f880f4bd8820e6a1cfb9f9a34f820eb12a155aa5bc92d2", size = 223467760, upload-time = "2025-09-04T08:33:04.222Z" },
@@ -1318,7 +1322,7 @@ name = "nvidia-cusparse"
 version = "12.6.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-nvjitlink", marker = "(sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-3-kai-gpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'emscripten' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu') or (sys_platform == 'win32' and extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/94/5c26f33738ae35276672f12615a64bd008ed5be6d1ebcb23579285d960a9/nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:80bcc4662f23f1054ee334a15c72b8940402975e0eab63178fc7e670aa59472c", size = 162155568, upload-time = "2025-09-04T08:33:42.864Z" },
@@ -2177,13 +2181,13 @@ resolution-markers = [
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "filelock", marker = "sys_platform != 'darwin'" },
-    { name = "fsspec", marker = "sys_platform != 'darwin'" },
-    { name = "jinja2", marker = "sys_platform != 'darwin'" },
-    { name = "networkx", marker = "sys_platform != 'darwin'" },
-    { name = "setuptools", marker = "sys_platform != 'darwin'" },
-    { name = "sympy", marker = "sys_platform != 'darwin'" },
-    { name = "typing-extensions", marker = "sys_platform != 'darwin'" },
+    { name = "filelock", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "fsspec", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "jinja2", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "networkx", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "setuptools", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "sympy", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-linux_s390x.whl", hash = "sha256:6b06a7f6275c5fdecaf1dbf5546f0820b024a97785575bb99e3d9930d83cd86b", upload-time = "2026-09-30T19:47:30Z" },
@@ -2203,25 +2207,41 @@ resolution-markers = [
     "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "cuda-bindings", marker = "sys_platform == 'linux'" },
+    { name = "cuda-bindings", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
     { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
-    { name = "filelock", marker = "sys_platform != 'darwin'" },
-    { name = "fsspec", marker = "sys_platform != 'darwin'" },
-    { name = "jinja2", marker = "sys_platform != 'darwin'" },
-    { name = "networkx", marker = "sys_platform != 'darwin'" },
-    { name = "nvidia-cudnn-cu13", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cusparselt-cu13", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-nccl-cu13", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-nvshmem-cu13", marker = "sys_platform == 'linux'" },
-    { name = "setuptools", marker = "sys_platform != 'darwin'" },
-    { name = "sympy", marker = "sys_platform != 'darwin'" },
-    { name = "triton", marker = "sys_platform == 'linux'" },
-    { name = "typing-extensions", marker = "sys_platform != 'darwin'" },
+    { name = "filelock", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "fsspec", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "jinja2", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "networkx", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cudnn-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-cusparselt-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nccl-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "nvidia-nvshmem-cu13", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "setuptools", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "sympy", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "triton", marker = "(sys_platform == 'linux' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:6afc5e5944fb0bd927e08d32a11f71d19154001f1c81fa00a6ed81a217451795", upload-time = "2026-09-30T20:23:37Z" },
     { url = "https://download-r2.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:5359b255ac68c0cabb8293952b38e00f0d1a570815cd87f19b61af702c071410", upload-time = "2026-09-30T20:24:05Z" },
     { url = "https://download-r2.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp312-cp312-win_amd64.whl", hash = "sha256:0a09031e93632d14ef49553acd6211ece3ae9cdc0969a369b8c24e3cc4d15be9", upload-time = "2026-09-30T20:25:17Z" },
+]
+
+[[package]]
+name = "torchaudio"
+version = "2.11.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'darwin' and extra == 'extra-3-kai-cpu') or (sys_platform == 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-cpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+    { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "(sys_platform != 'darwin' and extra == 'extra-3-kai-gpu') or (extra == 'extra-3-kai-cpu' and extra == 'extra-3-kai-gpu')" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/2a/c2b0f44906f8a4e8d90facdf68bc76bb14e72a0cbb9cc0457ca1c2fcd101/torchaudio-2.11.1-py3-none-macosx_14_0_arm64.whl", hash = "sha256:917667ab3e357d286b0e2405a33dc538e4344d554b72e1b2b03382a4352ca857", size = 699189, upload-time = "2026-10-28T15:21:42.129Z" },
+    { url = "https://files.pythonhosted.org/packages/90/c7/e352c0a0f34653f3f6a581b580352ab1c83e5d04019826ade4dfc26cf664/torchaudio-2.11.1-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:ad1175202b5cdb7585a38c1330845430e128c4ed8ceb770639318aa40fc1994b", size = 1678033, upload-time = "2026-10-28T15:21:43.28Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/ad/b0bf9bfa9db80acf0ce660e01a67b3b735343ab51ce1410b18d2aaed254c/torchaudio-2.11.1-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0173b5b51e1368aa88de3cbe4e98508b5e9df4d8d59356c4e1fbc830c96191ef", size = 1816417, upload-time = "2026-10-28T15:21:45.007Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/9e/549c9bb2d139fe78c90c9381f9ffbfc87232336df4537a65ea31d51fcdee/torchaudio-2.11.1-py3-none-win_amd64.whl", hash = "sha256:46ea71634d181f797370f046075ea982043c228b38d674fd7d9fc1c855a37b6a", size = 334360, upload-time = "2026-10-28T15:21:40.715Z" },
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,7 +15,7 @@ from kai.profile import profiler as pf
 
 
 def test_time_ms_measures_only_the_call_and_can_idle_between_calls() -> None:
-    calls = []
+    calls: list[Any] = []
 
     def work(i: int) -> None:
         calls.append(i)
@@ -49,6 +50,71 @@ def test_co_tenants_pin_and_restore_affinity() -> None:
         assert ctx._procs[0].is_alive()
     assert os.sched_getaffinity(0) == before
     assert not ctx._procs[0].is_alive()
+
+
+def test_co_tenants_pin_every_thread_of_the_process() -> None:
+    import threading
+
+    stop = threading.Event()
+    seen: list[set[int]] = []
+    started = threading.Event()
+
+    def worker() -> None:
+        started.set()
+        stop.wait()
+
+    t = threading.Thread(target=worker)
+    t.start()
+    started.wait()
+    try:
+        with pf.co_tenants(0, core=min(os.sched_getaffinity(0))) as ctx:
+            seen = [os.sched_getaffinity(int(tid)) for tid in os.listdir("/proc/self/task")]
+            assert all(a == {ctx.core} for a in seen)
+            assert len(seen) >= 2
+    finally:
+        stop.set()
+        t.join()
+
+
+def test_p_core_prefers_the_highest_max_freq_and_the_lowest_id_on_ties(monkeypatch) -> None:
+    freq = {0: 3000, 1: 4600, 2: 4600, 3: 2000}
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: {0, 1, 2, 3})
+    monkeypatch.setattr(pf, "_read_int", lambda path: freq[int(path.parts[-3].removeprefix("cpu"))])
+    assert pf.p_core() == 1
+
+
+def test_core_metadata_has_nulls_for_missing_files(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(pf, "_CPU", tmp_path)
+    monkeypatch.setattr(pf, "Path", lambda p: tmp_path / "missing")
+    meta = pf.core_metadata(0)
+    assert meta["core"] == 0
+    assert meta["scaling_cur_freq_khz"] is None
+    assert meta["turbo_enabled"] is None
+    assert meta["cgroup_cpu_max"] is None
+    assert meta["thermal_throttle"] == {
+        "core_throttle_count": None,
+        "package_throttle_count": None,
+    }
+    (tmp_path / "cpu0/cpufreq").mkdir(parents=True)
+    (tmp_path / "cpu0/cpufreq/scaling_max_freq").write_text("4000000\n")
+    (tmp_path / "intel_pstate").mkdir()
+    (tmp_path / "intel_pstate/no_turbo").write_text("1\n")
+    meta = pf.core_metadata(0)
+    assert meta["scaling_max_freq_khz"] == 4000000
+    assert meta["turbo_enabled"] is False
+
+
+def test_core_metadata_called_twice_brackets_the_throttle_counts(monkeypatch, tmp_path) -> None:
+    """e1 stores `core_before` and `core_after`: the counts differ if the core throttled."""
+    monkeypatch.setattr(pf, "_CPU", tmp_path)
+    f = tmp_path / "cpu0/thermal_throttle/core_throttle_count"
+    f.parent.mkdir(parents=True)
+    f.write_text("3\n")
+    before = pf.core_metadata(0)
+    f.write_text("8\n")
+    after = pf.core_metadata(0)
+    assert before["thermal_throttle"]["core_throttle_count"] == 3  # type: ignore[index]
+    assert after["thermal_throttle"]["core_throttle_count"] == 8  # type: ignore[index]
 
 
 def test_crossings_skip_bandwidths_where_nothing_was_measured() -> None:
@@ -107,7 +173,7 @@ def test_pipeline_profile_times_each_stage_where_it_runs() -> None:
     d[::2, 2] = True
     predictor = fit_predictor(phi, d, ("r0_raw", "a", "b"), kind="logistic")
     reps = classical_menu(1024)[:2]  # raw and lossless
-    calls = []
+    calls: list[Any] = []
     encoders, overheads = pf.profile_pipeline(
         reps,
         windows,
@@ -129,7 +195,7 @@ def test_pipeline_profile_times_each_stage_where_it_runs() -> None:
 def test_decode_and_head_are_timed_inside_one_call_without_the_warm_up() -> None:
     from kai.reps.registry import classical_menu
 
-    calls = []
+    calls: list[Any] = []
 
     class Zoo:
         def decide_timed(self, rep_id: str, payload: bytes) -> tuple[int, float, float]:

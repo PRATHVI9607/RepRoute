@@ -166,3 +166,45 @@ def test_cloud_process_and_real_run_telemetry(bundle_dir, fold_dir, ws, tmp_path
         assert r["measured_cloud_dec_ms"] >= 0.0
         assert r["measured_cloud_head_ms"] >= 0.0
         assert r["cloud_ms"] >= 0.0
+
+
+def test_cloud_process_runs_under_taskset_when_cpus_are_set(monkeypatch, tmp_path: Path) -> None:
+    """ADR 0028 D: the cloud child must stay off the slow edge core."""
+    from kai.bench import realrun
+
+    cmds: list[list[str]] = []
+
+    class _Proc:
+        returncode = None
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None: ...
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    def popen(cmd: list[str]) -> _Proc:
+        cmds.append(cmd)
+        return _Proc()
+
+    monkeypatch.setattr(realrun.subprocess, "Popen", popen)
+    monkeypatch.setattr(realrun.socket, "create_connection", lambda *a, **k: _Conn())
+    for cpus in ("0-3", None):
+        if cpus:
+            monkeypatch.setenv("KAI_CLOUD_CPUS", cpus)
+        else:
+            monkeypatch.delenv("KAI_CLOUD_CPUS", raising=False)
+        with realrun.cloud_process(tmp_path):
+            pass
+    assert cmds[0][:3] == ["taskset", "-c", "0-3"]
+    assert cmds[0][3:6] == [realrun.sys.executable, "-m", "kai.cloud.server"]
+    assert cmds[1][0] == realrun.sys.executable
+
+
+class _Conn:
+    def __enter__(self) -> _Conn:
+        return self
+
+    def __exit__(self, *exc: object) -> None: ...

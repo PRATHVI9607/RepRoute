@@ -122,6 +122,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
     backlog = 0.0  # bytes queued or in flight on the uplink
     deferred_bytes = 0.0
     in_flight = 0.0  # bytes of the frame currently on the wire
+    on_wire: _Frame | None = None
     forwarding = 0.0  # ... of which store-and-forward traffic (not part of `backlog`)
     last_tx_end = 0.0
     tx_start = 0.0
@@ -183,7 +184,7 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
             yield cpu_queue.put(i)
             yield env.timeout(gap_s)
 
-    def cpu():  # noqa: PLR0912
+    def cpu():  # noqa: PLR0912, PLR0915
         nonlocal backlog, deferred_bytes
         for _ in range(n):
             i = yield cpu_queue.get()
@@ -204,13 +205,18 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 dec = selector.select(win, state, truth)
                 if dec.rep != NO_REP:
                     res.edge_ms[i] = edge_ms[dec.rep]
-                elif dec.flag == "deferred" and defer_rep != 0:
-                    res.edge_ms[i] = edge_ms[defer_rep]  # the cached copy is encoded now
+                elif dec.flag == "deferred":
+                    res.edge_ms[i] = edge_ms[defer_rep]  # the cached copy is encoded now (raw too)
                 else:
                     res.edge_ms[i] = overhead_ms
             else:
                 res.probed[i] = False
-                res.edge_ms[i] = cheap_edge_ms[dec.rep] if dec.rep != NO_REP else cheap_overhead_ms
+                if dec.rep != NO_REP:
+                    res.edge_ms[i] = cheap_edge_ms[dec.rep]
+                elif dec.flag == "deferred":
+                    res.edge_ms[i] = cheap_edge_ms[defer_rep]
+                else:
+                    res.edge_ms[i] = cheap_overhead_ms
             res.flag[i] = FLAGS.index(dec.flag)
             res.rep[i] = dec.rep
             yield env.timeout(res.edge_ms[i] / 1000.0)
@@ -218,7 +224,8 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                 res.disagreed[i] = bool(work.d[i, dec.rep])
                 nbytes = float(work.payload_bytes[i, dec.rep]) + OVERHEAD_BYTES
                 backlog += nbytes
-                enqueue(live, _Frame(i, nbytes, live=True))
+                frame = _Frame(i, nbytes, live=True)
+                enqueue(live, frame)
                 if audit.should_audit():
                     certified = dec.flag == "certified"
                     disagreed = bool(work.d[i, dec.rep])
@@ -227,8 +234,9 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                     if certified and dec.rep == 0:
                         # raw agrees with itself: an audit that costs no bytes. Without it the
                         # audited decisions are the non-raw ones only, and an adaptive threshold
-                        # that reaches raw-only never hears anything again (ADR 0007).
-                        certifier.feedback(False)
+                        # that reaches raw-only never hears anything again (ADR 0007). The edge
+                        # hears when the raw frame is delivered, like any audit (ADR 0028 fix 5).
+                        frame.audit = (0, False, True)
                     if dec.rep != 0:  # also ship raw so the cloud can compare
                         res.audited[i] = True
                         res.edge_ms[i] += audit_copy_ms
@@ -257,7 +265,15 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
                     res.flag[i] = FLAGS.index("dropped")
 
     def link():
-        nonlocal backlog, deferred_bytes, wake, in_flight, forwarding, last_tx_end, tx_start
+        nonlocal \
+            backlog, \
+            deferred_bytes, \
+            wake, \
+            in_flight, \
+            forwarding, \
+            last_tx_end, \
+            tx_start, \
+            on_wire
         while True:
             if not live and not (deferred and link_recovered()):
                 wake = env.event()
@@ -269,10 +285,12 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
             track_queue(-1)
             res.queue_wait_s.append(env.now - frame.enqueued_s)
             start, in_flight = env.now, frame.nbytes
+            on_wire = frame
             tx_start = start
             forwarding = 0.0 if from_live else frame.nbytes
             yield env.timeout(scenario.trace.finish_time(start, frame.nbytes) - start)
             in_flight = forwarding = 0.0
+            on_wire = None
             last_tx_end = env.now
             if from_live:
                 backlog -= frame.nbytes
@@ -282,10 +300,11 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
             res.wire_bytes[frame.window] += frame.nbytes
             if frame.audit is not None:
                 a_rep, a_disagreed, a_certified = frame.audit
-                res.audit_fed[frame.window] = True
+                if a_rep != 0:  # raw "agree" is no audit copy
+                    res.audit_fed[frame.window] = True
                 if a_certified:
                     certifier.feedback(a_disagreed)
-                if observe is not None:
+                if observe is not None and a_rep != 0:
                     observe(a_rep, a_disagreed)
             est.add(frame.nbytes * 8.0 / max(env.now - start, 1e-9))
             i = frame.window
@@ -303,6 +322,9 @@ def simulate(  # noqa: PLR0915 - three coupled processes sharing queue state: ke
     env.run(until=done)
     env.run(until=env.now + scenario.deadline_ms / 1000.0)  # grace: let in-deadline frames land
     track_queue(0)
+    # frames still queued were sent by the radio or are committed: charge them to their windows
+    for f in (*live, *deferred, *([on_wire] if on_wire is not None else [])):
+        res.wire_bytes[f.window] += f.nbytes
     res.backlog_bytes = in_flight + sum(f.nbytes for f in live) + sum(f.nbytes for f in deferred)
     res.duration_s = float(env.now)
     return res

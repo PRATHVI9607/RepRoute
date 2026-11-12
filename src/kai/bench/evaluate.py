@@ -8,7 +8,7 @@ import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -47,6 +47,8 @@ LATENT_POLICIES = ("kai_s1_v0_latent", "kai_s1_v0_abc")
 # ADR 0026: scored by the head committee's ĝ_D; the last one also sends the committee's decisions
 COMMITTEE_POLICIES = ("kai_s1_v0_committee", "kai_s1_v0_late_committee")
 DEC_POLICY = "kai_s1_v0_late_committee_dec"
+CLASSICAL = ("r0_raw", "r1_lossless", "r2a_wavelet", "r2b_wavelet", "r3_spectral", "r4_summary")
+CLASSICAL_POLICY = "kai_s1_v0_classical"  # ADR 0028 A: V0 on the classical codecs only
 EDGE_POLICY = "b14_edge_inference"
 AGREEMENT_MIN = 0.999  # share of windows where a committee head's argmax must match the table
 SEL_POLICIES = ("kai_s1_v0_zsel", "kai_s1_v0_ab_zsel")  # C′: per-rep choice of ĝ or ĝ_z
@@ -130,6 +132,7 @@ class FoldCtx:
     committee: tuple[int, ...] = ()
     model_edge: CostModel | None = None
     sizes: dict[str, int] = field(default_factory=dict)  # model_bytes of the fold
+    lam_cls: dict[float, float] = field(default_factory=dict)  # per α: V0 on the CLASSICAL columns
 
     @property
     def latent_ghat_cal(self) -> tuple[np.ndarray, np.ndarray]:
@@ -173,7 +176,7 @@ def spread(idx: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
-def load_fold(
+def load_fold(  # noqa: PLR0915
     fold_dir: Path,
     profiles: list[RepProfile],
     overheads: Overheads,
@@ -186,9 +189,15 @@ def load_fold(
     seed: int = 0,
     windows_path: Path | None = None,
     edge_slowdown: float = 1.0,
+    edge_head_ms: np.ndarray | None = None,
+    edge_dec_ms: np.ndarray | None = None,
 ) -> FoldCtx:
     """`edge_slowdown` must be the one the profiles were loaded with: head times that run on the
-    edge (b14's f_raw, the committee's heads) are scaled by it too (ADR 0027)."""
+    edge (b14's f_raw, the committee's heads) are scaled by it too (ADR 0027). `edge_head_ms`
+    (per rep, measured on the slow edge, ADR 0028 D) replaces edge_slowdown × t_head_ms there, and
+    `edge_dec_ms` likewise replaces edge_slowdown × t_dec_ms for the committee's edge-side decode.
+    A fold whose metrics.json has `f_raw_cloud_gpu_ms` (wav2vec2, ADR 0028 B) runs the cloud's f_raw
+    on the GPU: raw's cloud-side head time becomes that, b14 keeps the profiled CPU time."""
     scored = scored_fold(fold_dir, predictor_kind, seed)
     by_id = {p.rep_id: p for p in profiles}
     model = CostModel(
@@ -202,6 +211,9 @@ def load_fold(
     m_cal = crc.first_loss_threshold(ghat_cal, d_cal)
     units = scored.table.bearing_id[scored.table.of("calib")]
     group = {a: crc.group_crc_threshold(m_cal, units, a) for a in alphas}
+    cls = np.array([r in CLASSICAL for r in scored.table.rep_ids])
+    m_cls = crc.first_loss_threshold(ghat_cal[:, cls], d_cal[:, cls])
+    lam_cls = {a: crc.crc_threshold(m_cls, a) for a in alphas}
     latent = latent_scores(fold_dir, scored.table, windows_path, predictor_kind, seed)
     ghat_z = use_z = ghat_sel = model_z = model_sel = None
     lam_z: dict[float, float] = {}
@@ -240,28 +252,63 @@ def load_fold(
         lam_d = {a: crc.crc_threshold(m_d, a) for a in alphas}
         m_dec = crc.first_loss_threshold(ghat_d[cal], d_dec[cal])
         lam_dec = {a: crc.crc_threshold(m_dec, a) for a in alphas}
-        model_d, model_dec = committee_models(model, committee, edge_slowdown)
-    model_edge = edge_model(model, edge_slowdown)
+        model_d, model_dec = committee_models(
+            model, committee, edge_slowdown, edge_head_ms, edge_dec_ms
+        )
+    model_edge = edge_model(model, edge_slowdown, edge_head_ms)  # CPU time, before any GPU override
+    gpu_ms = _cloud_gpu_ms(fold_dir)
+    if gpu_ms is not None:  # cloud-side raw head only; model_edge already holds the CPU time
+        sel_is_z, sel_is_model = model_sel is model_z, model_sel is model
+        model = _with_raw_head(model, gpu_ms)
+        model_z = _with_raw_head(model_z, gpu_ms) if model_z is not None else None
+        model_d = _with_raw_head(model_d, gpu_ms) if model_d is not None else None
+        if model_dec is not None and 0 not in committee:  # a member's head is already free there
+            model_dec = _with_raw_head(model_dec, gpu_ms)
+        if model_sel is not None:
+            model_sel = model_z if sel_is_z else model if sel_is_model else model_sel
     return FoldCtx(
         scored, model, lambdas, window_period_ms, static, cascade, group, m_cal,
         ghat_z, lam_z, model_z, ghat_sel, use_z, lam_sel, model_sel,
         ghat_d, lam_d, d_dec, lam_dec, model_d, model_dec, committee, model_edge,
-        model_bytes(fold_dir, predictor_kind),
+        model_bytes(fold_dir, predictor_kind), lam_cls,
     )  # fmt: skip
 
 
+def _cloud_gpu_ms(fold_dir: Path) -> float | None:
+    path = fold_dir / "metrics.json"
+    if not path.exists():
+        return None
+    v = json.loads(path.read_text()).get("f_raw_cloud_gpu_ms")
+    return None if v is None else float(v)
+
+
+def _with_raw_head(model: CostModel, head_ms: float) -> CostModel:
+    """The cloud runs f_raw for every waveform rep (raw, lossless, wavelets), not only raw."""
+    t_head = model.profiles.t_head_ms.copy()
+    t_head[[r in WAVEFORM_REPS for r in model.profiles.rep_ids]] = head_ms
+    return replace(model, profiles=replace(model.profiles, t_head_ms=t_head))
+
+
 def committee_models(
-    model: CostModel, committee: tuple[int, ...], edge_slowdown: float = 1.0
+    model: CostModel,
+    committee: tuple[int, ...],
+    edge_slowdown: float = 1.0,
+    edge_head_ms: np.ndarray | None = None,
+    edge_dec_ms: np.ndarray | None = None,
 ) -> tuple[CostModel, CostModel]:
     """(model_d, model_dec) of ADR 0026. The edge encodes, decodes and runs every member's head on
     every window (probe work), so a member's own encode is free when it is sent. Head times are the
     stored per-rep t_head_ms (this machine's profile), the same measurement b14 uses for f_raw.
     With decision payloads the edge already holds the cloud's answer: 1 byte, no cloud work.
-    The heads run on the edge, so their time is scaled by `edge_slowdown` (encodes already are)."""
+    The heads run on the edge, so their time is scaled by `edge_slowdown` (encodes already are), or
+    taken from `edge_head_ms`; so is the decode of each member's payload, from `edge_dec_ms` when
+    measured (ADR 0028 fix 4)."""
     c, p = list(committee), model.profiles
+    head = edge_slowdown * p.t_head_ms if edge_head_ms is None else np.asarray(edge_head_ms)
+    dec = edge_slowdown * p.t_dec_ms if edge_dec_ms is None else np.asarray(edge_dec_ms)
     t_enc = p.t_enc_ms.copy()
     t_enc[c] = 0.0
-    probe = model.overheads.t_probe_ms + float((p.t_enc_ms + edge_slowdown * p.t_head_ms)[c].sum())
+    probe = model.overheads.t_probe_ms + float((p.t_enc_ms + head + dec)[c].sum())
     model_d = replace(
         model,
         profiles=replace(p, t_enc_ms=t_enc),
@@ -275,15 +322,22 @@ def committee_models(
     )
 
 
-def edge_model(model: CostModel, edge_slowdown: float = 1.0) -> CostModel:
+def edge_model(
+    model: CostModel, edge_slowdown: float = 1.0, edge_head_ms: np.ndarray | None = None
+) -> CostModel:
     """b14: f_raw on the edge, one byte sent, d = 0. Its time is raw's stored t_head_ms: the same
     profile measurement as the committee's head times (timing parity, ADR 0026), scaled by
-    `edge_slowdown` like every other edge time (ADR 0027)."""
+    `edge_slowdown` like every other edge time (ADR 0027), or `edge_head_ms[0]` when measured."""
     p = model.profiles
     size, t_enc, t_dec, t_head = (
         a.copy() for a in (p.size_bytes, p.t_enc_ms, p.t_dec_ms, p.t_head_ms)
     )
-    size[0], t_enc[0], t_dec[0], t_head[0] = 1.0, edge_slowdown * p.t_head_ms[0], 0.0, 0.0
+    size[0], t_enc[0], t_dec[0], t_head[0] = (
+        1.0,
+        edge_slowdown * p.t_head_ms[0] if edge_head_ms is None else float(edge_head_ms[0]),
+        0.0,
+        0.0,
+    )
     return replace(
         model,
         profiles=replace(p, size_bytes=size, t_enc_ms=t_enc, t_dec_ms=t_dec, t_head_ms=t_head),
@@ -493,24 +547,39 @@ def model_bytes(fold_dir: Path, kind: str = "mlp") -> dict[str, int]:
     for name, pattern in (
         ("predictor", f"predictor_{kind}_*.npz"),
         ("predictor_d", f"predictor_d_{kind}_*.npz"),
+        ("predictor_z", f"predictor_z_{kind}_*.npz"),
     ):
         if files := sorted(fold_dir.glob(pattern), key=lambda p: p.stat().st_mtime):
             out[name] = files[-1].stat().st_size
     return out
 
 
-def required_bytes(ctx: FoldCtx, name: str, selector: Selector) -> int:
+def required_bytes(  # noqa: PLR0911 - one early return per policy family
+    ctx: FoldCtx, name: str, selector: Selector
+) -> int:
     """Edge model memory a policy needs (ADR 0026): b14 f_raw; the committee policies the
-    committee's encoders and heads plus ĝ_D; a static policy its encoder; other Kai policies and
+    committee's encoders and heads, ĝ_D and the other reps' encoders; the latent ones the menu and
+    ĝ_z; a static policy its encoder; other Kai policies and
     baselines the whole menu's encoders (and the predictor for Kai). The oracle needs nothing."""
     sz, ids = ctx.sizes, ctx.rep_ids
     if name == EDGE_POLICY:
         return sz.get("f_raw", 0)
     if name in (*COMMITTEE_POLICIES, DEC_POLICY):
-        members = [ids[k] for k in ctx.committee]
-        return sum(sz.get(f"enc/{r}", 0) + sz.get(f"head/{r}", 0) for r in members) + sz.get(
-            "predictor_d", 0
+        # members run their own encoder + head; every other rep can still be sent, and r1 is the
+        # deferral copy (ADR 0028 fix 4)
+        members = {ids[k] for k in ctx.committee}
+        return (
+            sum(sz.get(f"enc/{r}", 0) + sz.get(f"head/{r}", 0) for r in members)
+            + sum(sz.get(f"enc/{r}", 0) for r in ids if r not in members)
+            + sz.get("predictor_d", 0)
         )
+    if name in (*LATENT_POLICIES, *SEL_POLICIES):
+        # the r6 encoder is a menu encoder, so it is already in the sum; the zsel policies also
+        # keep the plain predictor for the reps that do not use z
+        plain = sz.get("predictor", 0) if name in SEL_POLICIES else 0
+        return sum(sz.get(f"enc/{r}", 0) for r in ids) + sz.get("predictor_z", 0) + plain
+    if name == CLASSICAL_POLICY:
+        return sz.get("predictor", 0) + sum(sz.get(f"enc/{r}", 0) for r in ids if r in CLASSICAL)
     if name == "oracle":
         return 0
     if isinstance(selector, Static):
@@ -576,7 +645,11 @@ def v2_threshold(ctx: FoldCtx, cell: Cell) -> float:
 
 
 def policies(
-    ctx: FoldCtx, cell: Cell, mission: Mission, which: str = "main"
+    ctx: FoldCtx,
+    cell: Cell,
+    mission: Mission,
+    which: str = "main",
+    late_cap_factor: float = 10.0,
 ) -> dict[str, Callable[[], tuple[Selector, Certifier]]]:
     """name → builder of (selector, certifier). `which`: "main" (E3) or "ablation" (E5).
 
@@ -589,6 +662,11 @@ def policies(
     _, d_cal = ctx.scored.part("calib")
     period = ctx.window_period_ms / cell.n_sensors
     nominal = nominal_state(cell)
+
+    late: dict[str, Any] = {
+        "deadline_nominal_ms": cell.deadline_ms,
+        "late_cap_factor": late_cap_factor,
+    }
 
     def idx(rep_id: str) -> int:
         return ids.index(rep_id)
@@ -604,7 +682,7 @@ def policies(
         latent = {
             "kai_s1_v0_latent": lambda: (GreedySafe(model_z, mission), Certifier(lam_z)),
             "kai_s1_v0_abc": lambda: (
-                GreedySafe(model_z, "certified_late", defer_rep=idx("r1_lossless")),
+                GreedySafe(model_z, "certified_late", defer_rep=idx("r1_lossless"), **late),
                 Certifier(lam_z),
             ),
         }
@@ -613,7 +691,7 @@ def policies(
         latent |= {
             "kai_s1_v0_zsel": lambda: (GreedySafe(model_sel, mission), Certifier(lam_sel)),
             "kai_s1_v0_ab_zsel": lambda: (
-                GreedySafe(model_sel, "certified_late", defer_rep=idx("r1_lossless")),
+                GreedySafe(model_sel, "certified_late", defer_rep=idx("r1_lossless"), **late),
                 Certifier(lam_sel),
             ),
         }
@@ -624,14 +702,20 @@ def policies(
         latent |= {
             "kai_s1_v0_committee": lambda: (GreedySafe(model_d, mission), Certifier(lam_d)),
             "kai_s1_v0_late_committee": lambda: (
-                GreedySafe(model_d, "certified_late", defer_rep=defer),
+                GreedySafe(model_d, "certified_late", defer_rep=defer, **late),
                 Certifier(lam_d),
             ),
             DEC_POLICY: lambda: (
-                GreedySafe(model_dec, "certified_late", defer_rep=defer),
+                GreedySafe(model_dec, "certified_late", defer_rep=defer, **late),
                 Certifier(ctx.lam_dec[alpha]),
             ),
         }
+    classical: dict[str, Callable[[], tuple[Selector, Certifier]]] = {}
+    if alpha in ctx.lam_cls and which == "main":
+        classical[CLASSICAL_POLICY] = lambda: (
+            GreedySafe(model, mission),
+            Certifier(ctx.lam_cls[alpha], menu=mask(CLASSICAL)),
+        )
     if which == "main":
         marginal = bl.marginally_admissible(d_cal, alpha)
         return {
@@ -688,12 +772,13 @@ def policies(
             "kai_s2_v0": lambda: (MpcSafe(model, period, mission=mission), cert0),
             "kai_s1_v0_live": lambda: (GreedySafe(model, "liveness_first"), cert0),
             # shortcut: simulator only (ADR 0025); the edge runtime needs this before E7 or a confirmatory run  # noqa: E501
-            "kai_s1_v0_late": lambda: (GreedySafe(model, "certified_late"), cert0),
+            "kai_s1_v0_late": lambda: (GreedySafe(model, "certified_late", **late), cert0),
             "kai_s1_v0_lldefer": lambda: (
                 GreedySafe(model, mission, defer_rep=idx("r1_lossless")),
                 cert0,
             ),
             **latent,
+            **classical,
             "oracle": lambda: (Oracle(lookup, mission), cert0),
         }
     no_enc = replace(model, profiles=model.profiles.without_encode_cost())
@@ -728,29 +813,52 @@ def policies(
 
 
 def metrics(
-    res: Result, cell: Cell, model: CostModel, late_cap_factor: float = 10.0
+    res: Result,
+    cell: Cell,
+    model: CostModel,
+    late_cap_factor: float = 10.0,
+    window_period_ms: float = float("nan"),
 ) -> dict[str, float]:
-    """Per-run metrics (PRD §9.3). Costs are realised: actual bytes, CPU time and lateness."""
+    """Per-run metrics (PRD §9.3). Costs are realised: actual bytes, CPU time and lateness.
+
+    `cost` is the sum of its four terms (`cost_bytes`, `cost_energy_cpu` + `cost_energy_link`,
+    `cost_cpu`, `cost_late`); `cost_cap5/20` re-price lateness with a 5·D / 20·D cap, and
+    `edge_util` is the edge time per window over the arrival gap `window_period_ms / n_sensors`
+    (NaN unless `window_period_ms` is given)."""
     n = len(res.rep)
     sent = res.rep >= 0
     certified = res.flag == FLAGS.index("certified")
-    cap = late_cap_factor * cell.deadline_ms
-    lateness = np.where(
-        np.isnan(res.latency_ms), cap, np.clip(res.latency_ms - cell.deadline_ms, 0.0, cap)
-    )
-    energy = (
-        model.energy.p_cpu_w * res.edge_ms / 1000.0 + model.energy.e_bit_j * res.wire_bytes * 8.0
-    )
+    d_ms = cell.deadline_ms
+
+    def lateness_ms(factor: float) -> np.ndarray:
+        cap = factor * d_ms
+        return np.where(np.isnan(res.latency_ms), cap, np.clip(res.latency_ms - d_ms, 0.0, cap))
+
+    energy_cpu = model.energy.p_cpu_w * res.edge_ms / 1000.0
+    energy_link = model.energy.e_bit_j * res.wire_bytes * 8.0
+    energy = energy_cpu + energy_link
     pr = model.prices
-    cost = (
-        pr.p_byte * res.wire_bytes
-        + pr.p_j * energy
-        + pr.p_cpu_ms * res.edge_ms
-        + pr.p_late_ms * lateness
-    )
+    c_bytes = float((pr.p_byte * res.wire_bytes).mean())
+    c_ecpu = float((pr.p_j * energy_cpu).mean())
+    c_elink = float((pr.p_j * energy_link).mean())
+    c_cpu = float((pr.p_cpu_ms * res.edge_ms).mean())
+
+    def c_late(factor: float) -> float:
+        return float((pr.p_late_ms * lateness_ms(factor)).mean())
+
+    fixed = c_bytes + c_ecpu + c_elink + c_cpu
+    cost = fixed + c_late(late_cap_factor)
     delivered = res.latency_ms[~np.isnan(res.latency_ms)]
     out = {
-        "cost": float(cost.mean()),
+        "cost": cost,
+        "cost_bytes": c_bytes,
+        "cost_energy_cpu": c_ecpu,
+        "cost_energy_link": c_elink,
+        "cost_cpu": c_cpu,
+        "cost_late": c_late(late_cap_factor),
+        "cost_cap5": fixed + c_late(5.0),
+        "cost_cap20": fixed + c_late(20.0),
+        "edge_util": float(res.edge_ms.mean() / (window_period_ms / cell.n_sensors)),
         "bytes": float(res.wire_bytes.mean()),
         "energy_j": float(energy.mean()),
         "edge_ms": float(res.edge_ms.mean()),
@@ -833,7 +941,7 @@ def run_cell(
         p_audit=cell.p_audit, seed=seed,
     )  # fmt: skip  # keywords: a positional seed once landed in probe_s (ADR 0023)
     rows: list[dict[str, float | str]] = []
-    for name, build in policies(ctx, cell, mission, which).items():
+    for name, build in policies(ctx, cell, mission, which, late_cap_factor).items():
         if only and name not in only:
             continue
         selector, certifier = build()
@@ -846,7 +954,7 @@ def run_cell(
         rows.append(
             {
                 "policy": name,
-                **metrics(res, audited_cell, truth, late_cap_factor),
+                **metrics(res, audited_cell, truth, late_cap_factor, ctx.window_period_ms),
                 "required_bytes": float(required_bytes(ctx, name, selector)),
             }
         )

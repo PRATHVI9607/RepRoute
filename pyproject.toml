@@ -23,8 +23,8 @@ lab   = [
   "lightgbm>=4.7,<5", "scipy>=1.18,<2", "pandas>=3.0,<4", "pyarrow>=26", "statsmodels>=0.15",
   "optuna>=5,<6", "hydra-core>=1.3,<2", "simpy>=4.1,<5", "matplotlib>=3.11,<4", "lz4>=4.4",
 ]
-cpu = ["torch>=2.14,<2.15"]
-gpu = ["torch>=2.14,<2.15"]
+cpu = ["torch>=2.14,<2.15", "torchaudio>=2.11,<2.12"]  # torchaudio: wav2vec2 f_raw (ADR 0028 B)
+gpu = ["torch>=2.14,<2.15", "torchaudio>=2.11,<2.12"]
 
 [project.scripts]
 kai = "kai.cli:app"

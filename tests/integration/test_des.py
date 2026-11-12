@@ -61,7 +61,8 @@ def test_every_byte_is_accounted_for(bps, sensors, storage, mission, p_audit, bu
     sc = Scenario(trace, 100, load, sensors, storage_bytes=storage, p_audit=p_audit)
     res = simulate(sc, WORK, GreedySafe(MODEL, mission), Certifier(lam=0.05), MODEL)
     assert abs(res.conservation_error) < 1e-6
-    assert res.delivered_bytes == pytest.approx(res.wire_bytes.sum())  # billed when sent
+    # billed when sent, or when still queued at the end (ADR 0028 fix 3)
+    assert res.delivered_bytes + res.backlog_bytes == pytest.approx(res.wire_bytes.sum())
     assert sum(res.flag_rate(f) for f in FLAGS) == pytest.approx(1.0)
     sent = res.rep >= 0
     assert (res.flag[~sent] >= FLAGS.index("deferred")).all()
@@ -160,7 +161,8 @@ def test_certified_late_sends_instead_of_deferring_when_the_deadline_cannot_be_m
     base = simulate(sc, work, GreedySafe(MODEL), CERT, MODEL)
     late = simulate(sc, work, GreedySafe(MODEL, "certified_late"), CERT, MODEL)
     assert base.flag_rate("deferred") > 0.05
-    assert late.flag_rate("deferred") == 0  # an up link is always sendable
+    # only windows met on the dead link defer: delivery is estimated beyond 10·D (ADR 0028 fix 1)
+    assert late.flag_rate("deferred") < base.flag_rate("deferred") / 2
     assert late.flag_rate("certified") > base.flag_rate("certified")
     assert abs(late.conservation_error) < 1e-6
 
@@ -367,12 +369,11 @@ def test_audit_copy_still_queued_at_the_end_is_unfed_and_counted() -> None:
     assert ev.metrics(res, cell, MODEL)["rate_audit_unfed"] > 0
 
 
-def test_cached_window_left_at_the_end_is_not_billed() -> None:
+def test_cached_window_left_at_the_end_is_billed() -> None:
     sc = Scenario(tr.static(1e3), deadline_ms=100)  # nothing fits: every window is cached
     res = simulate(sc, toy_workload(np.random.default_rng(3), 20), GreedySafe(MODEL), CERT, MODEL)
     assert res.backlog_bytes > 0
-    assert res.wire_bytes.sum() == pytest.approx(res.delivered_bytes)
-    assert res.wire_bytes.sum() < res.offered_bytes
+    assert res.wire_bytes.sum() == pytest.approx(res.delivered_bytes + res.backlog_bytes)
     assert abs(res.conservation_error) < 1e-6
 
 

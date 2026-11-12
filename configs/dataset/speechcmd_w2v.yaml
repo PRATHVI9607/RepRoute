@@ -1,0 +1,11 @@
+# Speech Commands v0.02 with the wav2vec2 f_raw candidate (ADR 0028 B, exploratory); paths relative to
+# KAI_WORK=transfer/speechcmd_w2v (data/ is a link to transfer/speechcmd/data)
+id: speechcmd-v1  # same windows and splits as speechcmd
+windows: data/processed/speechcmd.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # best by inner CV on training speakers (experiments/model_search/speechcmd-v1.jsonl)
+bottleneck: generic
+# ADR 0028 §7 B: per fold, wav2vec2 replaces the incumbent only if its ptrain macro-F1 beats it (bootstrap LB > 0)
+f_raw_candidates: [wave, w2v]
+f_raw_rule: ptrain_bootstrap

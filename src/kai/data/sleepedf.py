@@ -35,7 +35,7 @@ SAMPLE_RATE_HZ = SOURCE_RATE_HZ * UP / DOWN  # 102.4
 EPOCH_S = 30
 EPOCH_N = int(EPOCH_S * SOURCE_RATE_HZ)
 MARGIN_EPOCHS = 60  # 30 min of wake kept on each side of the sleep period
-DATASET_ID = "sleepedf-v1"
+DATASET_ID = "sleepedf-v2"  # v2: the whole night is resampled before cutting (ADR 0028 fix 18)
 CHANNEL = "EEG Fpz-Cz"
 CONDITION = "night"
 # the EEG channels' physical range is about ±200 µV, so only resampling overshoot can clip
@@ -221,7 +221,9 @@ def read_sums(raw_dir: Path) -> dict[str, str]:
 def night_epochs(
     psg: bytes, hyp: bytes
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int64], Counter[str]]:
-    """Kept 30-s epochs of one night: [n, 3000] µV at 100 Hz, labels, and dropped-epoch counts.
+    """Kept 30-s epochs of one night: [n, 3072] µV at 102.4 Hz, labels, and dropped-epoch counts.
+    The whole night is resampled once, then cut on the 30-s grid (3000 → 3072 samples exactly), so
+    epoch edges carry no filter transients (ADR 0028 fix 18).
     Raises KeyError if the channel is absent and ValueError on anything unexpected."""
     hp, hh = read_header(psg), read_header(hyp)
     if hp.start != hh.start:  # onsets count from the hypnogram start
@@ -248,7 +250,8 @@ def night_epochs(
         else:
             kept.append(k)
     idx = np.asarray(kept, dtype=np.int64)
-    windows = x[: n_signal * EPOCH_N].reshape(n_signal, EPOCH_N)[idx]
+    night = resample_poly(x[: n_signal * EPOCH_N], UP, DOWN)
+    windows = night.reshape(n_signal, EPOCH_N * UP // DOWN)[idx]
     labels = np.asarray([STAGES[epochs[k]] for k in kept], dtype=np.int64)
     return windows, labels, dropped
 
@@ -274,7 +277,7 @@ def build_windowset(
         except (ValueError, UnicodeDecodeError):  # malformed file: counted, never hidden
             skipped["unreadable"].append(night)
             continue
-        q, c = quantise(resample_poly(epochs, UP, DOWN, axis=1), full_scale_uv)
+        q, c = quantise(epochs, full_scale_uv)
         clipped += c
         dropped += d
         xs.append(q)

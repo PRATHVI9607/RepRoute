@@ -199,14 +199,15 @@ def test_certified_late_sends_the_cheapest_sendable_safe_rep_and_defers_otherwis
     assert ladder(safe, nothing, cost, "fidelity_first", sendable) == Decision(NO_REP, "deferred")
 
 
-def test_sendable_ignores_the_deadline_but_not_the_link_or_storage() -> None:
+def test_sendable_relaxes_the_deadline_to_the_cap_but_not_the_link_or_storage() -> None:
     s = State(
-        1e6, 20.0, 0.0, 0.0, deadline_ms=0.001, energy_budget_j=np.inf, storage_free_bytes=np.inf
+        1e6, 20.0, 0.0, 0.0, deadline_ms=5.0, energy_budget_j=np.inf, storage_free_bytes=np.inf
     )
     assert not MODEL.feasible(s).any()
     assert MODEL.sendable(s).all()
     assert not MODEL.sendable(replace(s, bandwidth_bps=0.0)).any()
     assert not MODEL.sendable(replace(s, storage_free_bytes=40.0)).any()
+    assert not MODEL.sendable(s, cap_ms=5.0).any()  # cap = D: back to feasible
 
 
 def test_cost_model_matches_the_prd_formula_by_hand() -> None:

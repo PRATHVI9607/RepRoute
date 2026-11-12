@@ -193,11 +193,14 @@ class CostModel:
         )
         return out
 
-    def sendable(self, s: State) -> Bool:
-        """Like `feasible` but ignoring the deadline; the link must be up (ADR 0025 A)."""
+    def sendable(self, s: State, cap_ms: float | None = None, waited_ms: float = 0.0) -> Bool:
+        """Like `feasible` but the deadline is relaxed to a lateness cap: the frame must still be
+        deliverable, `waited_ms + latency <= cap_ms` (default 10·D of the state), so a dead link
+        defers (ADR 0028 fix 1)."""
+        cap = 10.0 * s.deadline_ms if cap_ms is None else cap_ms
         out: Bool = (
             (self.energy_j(s) <= s.energy_budget_j)
             & (self.profiles.size_bytes + OVERHEAD_BYTES <= s.storage_free_bytes)
-            & (s.bandwidth_bps > 0.0)
+            & (waited_ms + self.latency_ms(s) <= cap)
         )
         return out

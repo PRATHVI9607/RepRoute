@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from typing import Any
 
 import numpy as np
 import torch
@@ -409,3 +410,28 @@ class LogMelNet(nn.Module):
         grid = x[:, 1:].reshape(-1, 1, self.n_frames, self.n_mels)
         h = self.features(grid).mean((2, 3))
         return self.linear(torch.cat([h, x[:, :1]], 1))
+
+
+class W2VClassifier(nn.Module):
+    """wav2vec2-base f_raw (ADR 0028 B): standardise per clip, mean-pool last layer, Linear.
+
+    Input [B, 1, N] in [-1, 1) like every model; output logits [B, n_classes].
+    """
+
+    def __init__(self, n_classes: int, backbone: nn.Module | None = None) -> None:
+        super().__init__()
+        if backbone is None:
+            import torchaudio
+
+            backbone = torchaudio.pipelines.WAV2VEC2_BASE.get_model()
+        self.backbone: Any = backbone
+        self.head = nn.Linear(768, n_classes)  # replaced below when the stub has another width
+        width = getattr(backbone, "hidden_size", None)
+        if width is not None:
+            self.head = nn.Linear(int(width), n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w = x[:, 0]
+        w = (w - w.mean(1, keepdim=True)) / (w.std(1, keepdim=True) + 1e-5)
+        feats, _ = self.backbone.extract_features(w)
+        return self.head(feats[-1].mean(1))

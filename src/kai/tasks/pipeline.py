@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os
 import time
 import zlib
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -35,9 +36,12 @@ from kai.reps.logmel import LogMel
 from kai.reps.registry import MENU_ORDER, classical_menu, save_menu
 from kai.tasks import train as tr
 from kai.tasks.heads import tune_and_fit
-from kai.tasks.models import SpecNet
+from kai.tasks.models import SpecNet, W2VClassifier
 
+R5_SCALE_SAMPLE = 16384  # train windows behind the r5 int8 scale (at least 4096)
 LEARNED = ("r5_ae", "r6_bottleneck", "r7_vq")
+F_RAW_RULES = ("ptrain_bootstrap", "ptrain_best")
+F_RAW_BOOTSTRAP = 2000
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,21 @@ class FoldConfig:
     logmel: bool = (
         False  # r10a/r10b log-mel grids with a distilled CNN head (ADR 0018, exploratory)
     )
+    # r5 int8 scale: "random_train" = quantile over a seeded random sample of the fold's train
+    # windows (ADR 0028 fix 15); folds built before it used the first 4096 in loader order.
+    r5_scale: str = "random_train"
+    # per-fold f_raw choice (ADR 0028 §7): candidates trained on the fold's train units, scored on
+    # its ptrain units. `f_raw` is the incumbent (first candidate). Empty = the single f_raw above.
+    f_raw_candidates: tuple[str, ...] = ()
+    f_raw_rule: str = ""  # "ptrain_bootstrap" (challenger must beat the incumbent) | "ptrain_best"
+
+    def __post_init__(self) -> None:
+        if bool(self.f_raw_candidates) != bool(self.f_raw_rule):
+            raise ValueError("f_raw_candidates and f_raw_rule go together")
+        if self.f_raw_rule and self.f_raw_rule not in F_RAW_RULES:
+            raise ValueError(f"f_raw_rule must be one of {F_RAW_RULES}")
+        if self.f_raw_candidates and self.f_raw_candidates[0] != self.f_raw:
+            raise ValueError("the first f_raw candidate is the incumbent and must equal f_raw")
 
     def recipe(self) -> dict[str, object]:
         """What determines the fold's models (the device does not): stored next to the fold."""
@@ -71,6 +90,10 @@ class FoldConfig:
             del out["extra_wavelets"]
         if not self.logmel:  # ... and before ADR 0018
             del out["logmel"]
+        if self.f_raw_candidates:
+            out["f_raw_candidates"] = list(self.f_raw_candidates)
+        else:  # folds trained before ADR 0028 §7 keep matching their recipe
+            del out["f_raw_candidates"], out["f_raw_rule"]
         return out
 
 
@@ -172,7 +195,7 @@ def classical_outputs(
     menu = classical_menu(ws.window_n, extra_wavelets, logmel_hz)
     code = {r.rep_id: f"{r.rep_id}:{r.version}:{r.codec_params()}" for r in menu}
     code["phi"] = PROBE_VERSION
-    data_crc = zlib.crc32(ws.x[::97].tobytes())
+    data_crc = zlib.crc32(np.ascontiguousarray(ws.x).data)  # every window (ADR 0028 fix 16)
     paths = {}
     for n, c in code.items():
         tag = f"{ws.dataset_id}_{len(ws)}x{ws.window_n}_{zlib.crc32(c.encode(), data_crc):08x}"
@@ -213,6 +236,129 @@ def classical_outputs(
     return {k: np.load(p, mmap_mode="r") for k, p in paths.items()}
 
 
+# --- per-fold f_raw choice (ADR 0028 §7) ---------------------------------------------------
+
+
+@dataclass
+class Candidate:
+    name: str
+    model: nn.Module
+    onnx: bytes
+
+
+def train_candidate(
+    name: str,
+    x: np.ndarray,
+    y: np.ndarray,
+    g: np.ndarray,
+    cfg: FoldConfig,
+    device: torch.device,
+) -> Candidate:
+    """Train one f_raw architecture on the given (train) windows and export it."""
+    fixed_front = {"env": tr.train_envnet, "kin": tr.train_kinnet, "spec": tr.train_specnet}
+    if name == "w2v":
+        rng = np.random.default_rng([cfg.seed, 28, 1])
+        # wav2vec2 always trains on the GPU when there is one; the small nets train on the fold's
+        # device (the CPU is ~4x faster than the RTX 2050 for them, ADR 0028)
+        w2v = tr.train_w2v(x, y, g, rng, tr.resolve_device("auto"))
+        return Candidate(name, w2v, tr.export_w2v_onnx(w2v, x.shape[1]))
+    model: nn.Module
+    if name in fixed_front:
+        model = fixed_front[name](x, y, g, cfg.seed)
+    elif name == "wave":
+        model = tr.train_rawnet(x, y, cfg.epochs_raw, cfg.seed, device)
+    else:
+        raise ValueError(f"unknown f_raw {name!r}")
+    return Candidate(name, model, tr.export_onnx(model, x.shape[1]))
+
+
+def _group_counts(
+    y: np.ndarray, pred: np.ndarray, g: np.ndarray, k: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-group, per-class true positives, predicted and true counts: [G, K] each."""
+    _, gi = np.unique(g, return_inverse=True)
+    n = int(gi.max()) + 1
+    tp, pc, tc = (np.zeros((n, k)) for _ in range(3))
+    np.add.at(tc, (gi, y), 1)
+    np.add.at(pc, (gi, pred), 1)
+    np.add.at(tp, (gi[y == pred], y[y == pred]), 1)
+    return tp, pc, tc
+
+
+def _macro_f1(tp: np.ndarray, pc: np.ndarray, tc: np.ndarray) -> np.ndarray:
+    """Macro-F1 over the classes present (true or predicted); rows are independent resamples."""
+    denom = pc + tc
+    f1 = np.divide(2 * tp, denom, out=np.zeros_like(tp), where=denom > 0)
+    return f1.sum(-1) / np.maximum((denom > 0).sum(-1), 1)
+
+
+def select_f_raw(
+    rule: str,
+    names: tuple[str, ...],
+    y: np.ndarray,
+    g: np.ndarray,
+    pred: dict[str, np.ndarray],
+    size_bytes: dict[str, int],
+    seed: int,
+) -> tuple[str, dict[str, float]]:
+    """Choose the fold's f_raw from candidates' predictions on its ptrain units.
+
+    `ptrain_bootstrap`: a challenger replaces the incumbent (names[0]) only if the 95 % lower
+    bound of the unit-bootstrap of F1_challenger − F1_incumbent is > 0 (the best passing one wins).
+    `ptrain_best`: highest macro-F1; ties go to the smaller model file, then list order.
+    Returns the choice and a flat record: `ptrain_f1/<name>`, `boot_lb/<name>`.
+    """
+    k = int(max(y.max(), *(p.max() for p in pred.values()))) + 1
+    counts = {n: _group_counts(y, pred[n], g, k) for n in names}
+    f1 = {n: float(_macro_f1(*(c.sum(0) for c in counts[n]))) for n in names}
+    record = {f"ptrain_f1/{n}": f1[n] for n in names}
+    if rule == "ptrain_best":
+        order = sorted(
+            range(len(names)), key=lambda i: (-round(f1[names[i]], 12), size_bytes[names[i]], i)
+        )
+        return names[order[0]], record
+    if rule != "ptrain_bootstrap":
+        raise ValueError(f"unknown rule {rule!r}")
+    inc = names[0]
+    n_groups = len(counts[inc][0])
+    rng = np.random.default_rng([seed, 28, 2])
+    draw = rng.integers(0, n_groups, size=(F_RAW_BOOTSTRAP, n_groups))
+    w = np.zeros((F_RAW_BOOTSTRAP, n_groups))
+    np.add.at(w, (np.arange(F_RAW_BOOTSTRAP)[:, None], draw), 1.0)
+    boot = {n: _macro_f1(*(w @ c for c in counts[n])) for n in names}
+    best, best_f1 = inc, f1[inc]
+    for n in names[1:]:
+        lb = float(np.quantile(boot[n] - boot[inc], 0.025))
+        record[f"boot_lb/{n}"] = lb
+        if lb > 0 and f1[n] > best_f1:
+            best, best_f1 = n, f1[n]
+    return best, record
+
+
+def choose_f_raw(
+    cfg: FoldConfig,
+    train: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ptrain: tuple[np.ndarray, np.ndarray, np.ndarray],
+    device: torch.device,
+    build: Callable[..., Candidate] = train_candidate,
+) -> tuple[Candidate, dict[str, float]]:
+    """Train the candidates on `train` and pick one by `ptrain`. Never sees calib or test."""
+    names = cfg.f_raw_candidates or (cfg.f_raw,)
+    if len(names) == 1:
+        return build(names[0], *train, cfg, device), {}
+    x_pt, y_pt, g_pt = ptrain
+    built: dict[str, Candidate] = {}
+    pred: dict[str, np.ndarray] = {}
+    for n in names:
+        built[n] = build(n, *train, cfg, device)
+        pred[n] = tr.predict_on(built[n].model, x_pt.astype(np.float32) / 32768.0, device).argmax(1)
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+    sizes = {n: len(c.onnx) for n, c in built.items()}
+    pick, record = select_f_raw(cfg.f_raw_rule, names, y_pt, g_pt, pred, sizes, cfg.seed)
+    return built[pick], record
+
+
 # --- one fold ------------------------------------------------------------------------------------
 
 
@@ -228,7 +374,9 @@ def _learned_rep(
     n = x.shape[1]
     if rep_id == "r5_ae":
         ae = tr.train_autoencoder(x, cfg.ae_dim, cfg.epochs_latent, cfg.seed, device)
-        z = tr.predict(ae.encoder, x[:4096].astype(np.float32) / 32768.0)
+        rng = np.random.default_rng([cfg.seed, 5])  # the fold's own Generator, not loader order
+        sample = np.sort(rng.choice(len(x), size=min(len(x), R5_SCALE_SAMPLE), replace=False))
+        z = tr.predict(ae.encoder, x[sample].astype(np.float32) / 32768.0)
         scale = np.maximum(np.quantile(np.abs(z), 0.999, axis=0), 1e-6) / 127.0
         return OnnxLatent(rep_id, n, tr.export_onnx(ae.encoder, n), scale)
     if rep_id == "r6_bottleneck":
@@ -288,19 +436,35 @@ def run_fold(  # noqa: PLR0915 - one linear recipe; splitting it would hide the 
     def stage(name: str) -> None:
         print(f"  [{out_dir.name}] {name}: {time.perf_counter() - t0:.0f}s", flush=True)
 
-    f_raw: nn.Module
-    fixed_front = {"env": tr.train_envnet, "kin": tr.train_kinnet, "spec": tr.train_specnet}
-    if cfg.f_raw in fixed_front:
-        f_raw = fixed_front[cfg.f_raw](x_tr, y_tr, g_tr, cfg.seed)
-    else:
-        f_raw = tr.train_rawnet(x_tr, y_tr, cfg.epochs_raw, cfg.seed, device)
-    stage("f_raw trained")
-    f_raw_onnx = tr.export_onnx(f_raw, ws.window_n)
+    is_pt = part == PARTITIONS.index("ptrain")
+    chosen, f_raw_rec = choose_f_raw(
+        cfg,
+        (x_tr, y_tr, g_tr),
+        (ws.x[is_pt], ws.label[is_pt], ws.bearing_id[is_pt]),
+        device,
+    )
+    f_raw, f_raw_onnx = chosen.model, chosen.onnx
+    stage(f"f_raw trained ({chosen.name})")
     (out_dir / "f_raw.onnx").write_bytes(f_raw_onnx)
     # decisions come from the exported model: what is certified is exactly what the cloud runs
     session = ort.InferenceSession(f_raw_onnx, providers=["CPUExecutionProvider"])
+    on_gpu = isinstance(f_raw, W2VClassifier)  # 700 ms/clip on one CPU thread: the cloud has a GPU
+    # wav2vec2 inference runs on the GPU like its training, whatever the fold's --device
+    f_dev = tr.resolve_device("auto") if on_gpu else device
+    f_raw_meta: dict[str, object] = {}
+    if on_gpu:
+        probe_x = ws.x[:32].astype(np.float32) / 32768.0
+        flips = int(
+            (
+                tr.predict_on(f_raw, probe_x, f_dev).argmax(1)
+                != session.run(None, {"x": probe_x[:, None, :]})[0].argmax(1)
+            ).sum()
+        )
+        f_raw_rec["onnx_argmax_flips_of_32"] = float(flips)
 
     def raw_decision(x_float: np.ndarray) -> np.ndarray:
+        if on_gpu:  # parity-checked against the ONNX export (flips recorded in the metrics)
+            return tr.predict_on(f_raw, np.asarray(x_float, np.float32), f_dev).argmax(1)
         logits = session.run(None, {"x": np.asarray(x_float, np.float32)[:, None, :]})[0]
         return logits.argmax(1)
 
@@ -379,8 +543,15 @@ def run_fold(  # noqa: PLR0915 - one linear recipe; splitting it would hide the 
         for p in ("ptrain", "calib", "test"):
             metrics[f"disagreement/{p}/{rid}"] = float(table.d[table.of(p), k].mean())
         metrics[f"bytes_mean/{rid}"] = float(table.payload_bytes[test, k].mean())
+    metrics["device_is_cuda"] = float(device.type == "cuda")  # not in the recipe: same models
     metrics["majority_baseline_macro_f1"] = float(
         f1_score(ws.label[test], np.full(test.sum(), np.bincount(y_tr).argmax()), average="macro")
     )
-    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=1))
+    metrics.update({f"f_raw_{k}": v for k, v in f_raw_rec.items()})
+    if on_gpu and f_dev.type == "cuda":
+        ms, mad = tr.time_gpu_ms(f_raw, ws.window_n, f_dev)
+        metrics |= {"f_raw_cloud_gpu_ms": ms, "f_raw_cloud_gpu_ms_mad": mad}
+    f_raw_meta["f_raw_choice"] = chosen.name
+    f_raw_meta["f_raw_candidates"] = list(cfg.f_raw_candidates or (cfg.f_raw,))
+    (out_dir / "metrics.json").write_text(json.dumps(metrics | f_raw_meta, indent=1))
     return table, metrics

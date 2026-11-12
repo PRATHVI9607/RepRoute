@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+# Paderborn classes only; other datasets define their own labels (any index >= 0)
 CLASS_NAMES = ("healthy", "inner", "outer")
 
 
@@ -19,7 +20,7 @@ class WindowSet:
     window_id: npt.NDArray[np.int64]  # [n], unique
     bearing_id: npt.NDArray[np.str_]  # [n], physical bearing
     condition: npt.NDArray[np.str_]  # [n], operating condition code
-    label: npt.NDArray[np.int64]  # [n], index into CLASS_NAMES
+    label: npt.NDArray[np.int64]  # [n], class index >= 0 (CLASS_NAMES only for Paderborn)
     sample_rate_hz: float
     dataset_id: str
 
@@ -32,6 +33,8 @@ class WindowSet:
             raise ValueError(f"x must be int16 [n, N], got {self.x.dtype} {self.x.shape}")
         if len(np.unique(self.window_id)) != n:
             raise ValueError("window_id must be unique")
+        if n and self.label.min() < 0:
+            raise ValueError("label must be >= 0")
 
     def __len__(self) -> int:
         return len(self.x)

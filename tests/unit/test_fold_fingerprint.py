@@ -18,7 +18,7 @@ def _ws(x: np.ndarray) -> SimpleNamespace:
     )
 
 
-def _run(monkeypatch, tmp_path, ws) -> None:
+def _run(monkeypatch, tmp_path, ws, stale: bool = False) -> None:
     import kai.bench.config as bc
     import kai.contracts.windows as cw
     import kai.data.splits as sp
@@ -46,6 +46,7 @@ def _run(monkeypatch, tmp_path, ws) -> None:
         bottleneck="generic",
         device="cpu",
         force=False,
+        stale=stale,
         overrides=None,
     )
 
@@ -68,3 +69,31 @@ def test_rebuilt_windows_file_is_refused_and_missing_stamp_is_written(
     _run(monkeypatch, tmp_path, _ws(x.copy()))  # same content: still skipped
     with pytest.raises(typer.BadParameter):
         _run(monkeypatch, tmp_path, _ws(x + 1))
+
+
+def test_stale_retrains_only_folds_of_another_recipe(monkeypatch, tmp_path) -> None:
+    out = tmp_path / "folds/m/s0_r0f0"
+    out.mkdir(parents=True)
+    (out / "metrics.json").write_text("{}")
+    (out / "fold_config.json").write_text(json.dumps({"old": "recipe"}))
+    trained: list[str] = []
+
+    def fake_run_fold(ws, fold, cfg, out_dir, cache):
+        trained.append(out_dir.name)
+        return None, {}
+
+    import kai.tasks.pipeline as pl
+
+    monkeypatch.setattr(pl, "run_fold", fake_run_fold)
+    x = np.arange(40, dtype=np.int16).reshape(10, 4)
+    with pytest.raises(typer.BadParameter, match="--stale"):
+        _run(monkeypatch, tmp_path, _ws(x))
+    _run(monkeypatch, tmp_path, _ws(x), stale=True)  # another recipe: retrained
+    assert trained == ["s0_r0f0"]
+    (out / "fold_config.json").write_text(
+        json.dumps(
+            FoldConfig("env", 30, 15, head_trials=10, bottleneck="generic", device="cpu").recipe()
+        )
+    )
+    _run(monkeypatch, tmp_path, _ws(x), stale=True)  # same recipe: kept
+    assert trained == ["s0_r0f0"]

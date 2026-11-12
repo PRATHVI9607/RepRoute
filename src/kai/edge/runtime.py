@@ -65,6 +65,7 @@ class EdgeConfig:
     selector: str = "s1_greedy_safe"  # one of SELECTOR_NAMES
     mission: Mission = "fidelity_first"
     deadline_ms: float = 250.0
+    late_cap_factor: float = 10.0  # certified_late sends only if deliverable within cap·D
     period_ms: float = 64.0
     load: float | None = None  # None → measure with psutil
     p_audit: float = 0.0
@@ -122,7 +123,10 @@ def build_selector(
     _validate_selector(cfg.selector)
     plan = CostModel(Profiles.from_list(bundle.profiles), bundle.overheads, energy, prices)
     if cfg.selector == "s1_greedy_safe":
-        return GreedySafe(plan, cfg.mission)
+        return GreedySafe(
+            plan, cfg.mission, deadline_nominal_ms=cfg.deadline_ms,
+            late_cap_factor=cfg.late_cap_factor,
+        )  # fmt: skip
     if cfg.selector == "s2_mpc_safe":
         return MpcSafe(plan, cfg.period_ms, mission=cfg.mission)
     if cfg.selector == "s1_cascade":
@@ -151,6 +155,8 @@ class Edge:
         )  # (window, rep_code, t_send, bytes)
         self._last_ack = _now_s()  # no ack yet: the probe clock starts at construction
         self._pace_free_at = 0.0
+        # shaped frames wait for the pacer in a sender task, not in the edge loop (ADR 0028 §13)
+        self._tx: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue()
         self._deferred: deque[tuple[int, np.ndarray]] = deque()
         self.records: dict[int, dict] = {}
         self.needs_bundle = False
@@ -158,15 +164,14 @@ class Edge:
 
     # --- transport --------------------------------------------------------------------------
     async def _send(self, window_id: int, rep_code: int, chash: bytes, payload: bytes) -> float:
-        """Write one frame, returning the time spent waiting for the token bucket.
+        """Queue (shaped) or write (unshaped) one frame; returns its token-bucket delay.
 
-        The wait is `_wait_until`, not a plain asyncio timer: the selector tick is ~1 ms on
-        Linux, which is larger than a small frame's serialization time and would add a constant
-        offset that the DES does not model. It yields to the loop, so replies to earlier frames
-        are read (and timed) while this frame waits; the caller subtracts the wait from its
-        CPU-time accounting.
-        The frame is stamped when its serialization starts, not after the wait: goodput samples
-        and `_backlog_seen` measure from that moment (ADR 0013, addendum).
+        With `shape_bps` the frame's slot on the emulated uplink is reserved here, but the wait
+        for it happens in `_sender`, so edge compute and transmission overlap as in kai.link.des.
+        The returned delay is informational (`pace_ms`); the caller does not wait for it.
+        The frame is stamped when its serialization starts, not when it is released: goodput
+        samples and `_backlog_seen` measure from that moment (ADR 0013, addendum). `_in_flight`
+        and `backlog` count it from the enqueue, in the order the sender writes.
         """
         buf = fr.pack(fr.Frame(rep_code, chash, window_id, time.time_ns(), payload))
         pace_s = 0.0
@@ -176,12 +181,21 @@ class Edge:
             t_start = max(now, self._pace_free_at)
             self._pace_free_at = t_start + len(buf) * 8.0 / self.cfg.shape_bps
             pace_s = max(0.0, self._pace_free_at - now)
-            if pace_s:
-                await _wait_until(self._pace_free_at)
-        self.writer.write(buf)
+            self._tx.put_nowait((self._pace_free_at, buf))
+        else:
+            self.writer.write(buf)
         self.backlog += len(buf)
         self._in_flight.append((window_id, rep_code, t_start, len(buf)))
         return pace_s
+
+    async def _sender(self) -> None:
+        """Release queued frames when their serialization time has elapsed (`_wait_until`, not a
+        plain asyncio timer: its ~1 ms tick would add an offset the DES does not model)."""
+        while True:
+            release_s, buf = await self._tx.get()
+            await _wait_until(release_s)
+            self.writer.write(buf)
+            self._tx.task_done()
 
     async def measure_rtt(self, samples: int = 5) -> float:
         rtts = []
@@ -227,6 +241,8 @@ class Edge:
                 rec["latency_ms"] = (now - rec["t_arrive"]) * 1000.0 - self.rtt_ms / 2.0
                 rec["decision"] = reply.decision
                 rec["cloud_ms"] = reply.cloud_ms
+                if rec.pop("agree_pending", False):  # raw agrees with itself, once acked (des)
+                    self.certifier.feedback(False)
             if reply.disagreed >= 0:
                 rec["disagreed"] = reply.disagreed
                 # the certificate covers certified decisions only (kai.link.des)
@@ -254,10 +270,11 @@ class Edge:
         core = psutil.Process().cpu_num()
         return min(psutil.cpu_percent(None, percpu=True)[core] / 100.0, 0.95)
 
-    async def run(self, windows: np.ndarray, window_ids: np.ndarray) -> list[dict]:
+    async def run(self, windows: np.ndarray, window_ids: np.ndarray) -> list[dict]:  # noqa: PLR0915
         psutil.cpu_percent(None, percpu=True)  # prime: the first reading would be 0.0
         await self.measure_rtt()
         acks = asyncio.create_task(self._acks())
+        sender = asyncio.create_task(self._sender())
         reps = self.bundle.reps
         chash = [bytes.fromhex(r.contract_hash()) for r in reps]
 
@@ -312,16 +329,22 @@ class Edge:
                             rec["audited"] = True
                             await send_rep(wid, 0, x, live=False)
                         elif dec.flag == "certified":
-                            # raw agrees with itself (see kai.link.des)
-                            self.certifier.feedback(False)
+                            # raw agrees with itself: fed when its ack arrives (kai.link.des)
+                            rec["agree_pending"] = True
                 elif dec.flag == "deferred":
                     if len(self._deferred) >= self.cfg.defer_buffer_windows:
                         dropped_wid, _ = self._deferred.popleft()  # buffer full: drop the oldest
                         self.records[dropped_wid]["flag"] = "dropped"
                     self._deferred.append((wid, x))
-                rec["edge_ms"] = (decide_s + _now_s() - t_send) * 1000.0 - rec["pace_ms"]
+                # shortcut: encoding runs inside the event loop, so it can delay the sender by at
+                # most one encode; move it to a thread if encodes grow past ~1 ms
+                rec["edge_ms"] = (
+                    decide_s + _now_s() - t_send
+                ) * 1000.0  # nothing waits for the pacer
+            await self._flush_tx(sender)
             await self._drain(acks)
         finally:
+            sender.cancel()
             await self._close(acks)
         return [self.records[w] for w in window_ids.tolist() if w in self.records]
 
@@ -338,6 +361,14 @@ class Edge:
         ghat = self.bundle.predictor.predict(phi)
         safe = self.certifier.safe_set(ghat, phi)
         return self.selector.select(Window(safe, ghat, phi), state), safe
+
+    async def _flush_tx(self, sender: asyncio.Task[None]) -> None:
+        """Wait for shaped frames still queued; a dead sender must not hang the join."""
+        joined = asyncio.create_task(self._tx.join())
+        await asyncio.wait({joined, sender}, return_when=asyncio.FIRST_COMPLETED)
+        if sender.done():
+            joined.cancel()
+            sender.result()  # re-raise what the sender hit
 
     async def _drain(self, acks: asyncio.Task[None]) -> None:
         """Wait for outstanding replies; raise what the reply reader hit."""

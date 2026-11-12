@@ -101,3 +101,10 @@ def test_cascade_still_rejects_a_bundle_without_cascade_calibration() -> None:
     cfg = EdgeConfig(selector="s1_cascade")
     with pytest.raises(ValueError, match="predates the cascade"):
         build_certifier(_bundle(), cfg)
+
+
+def test_greedy_selector_gets_the_nominal_deadline_and_cap() -> None:
+    cfg = EdgeConfig(mission="certified_late", deadline_ms=123.0, late_cap_factor=7.0)
+    sel = build_selector(_bundle(), cfg, PRICES, ENERGY)
+    assert isinstance(sel, GreedySafe)
+    assert (sel.deadline_nominal_ms, sel.late_cap_factor) == (123.0, 7.0)

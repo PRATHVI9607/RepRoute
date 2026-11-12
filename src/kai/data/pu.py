@@ -70,6 +70,8 @@ def load_vibration(mat_path: Path) -> np.ndarray:
 
 def quantise(signal: np.ndarray, full_scale: float) -> tuple[np.ndarray, int]:
     """float → int16 with a fixed full scale. Returns (samples, number of clipped samples)."""
+    if not np.all(np.isfinite(signal)):
+        raise ValueError("quantise: non-finite input (NaN or inf)")
     q = np.rint(signal / full_scale * 32767.0)
     clipped = int(np.count_nonzero(np.abs(q) > 32767))
     return np.clip(q, -32767, 32767).astype(np.int16), clipped

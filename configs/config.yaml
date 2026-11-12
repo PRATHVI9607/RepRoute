@@ -14,3 +14,4 @@ workers: 10
 reuse: false        # grid experiments: re-analyse stored results/results.parquet instead of simulating
 add_policies: []    # with reuse: simulate only these policies and merge them into the stored results
 max_folds: null     # limit grid experiments to the first folds (price-preset runs)
+k_grid: null        # E3k: a subset of the fixed K_GRID (null = all of it)

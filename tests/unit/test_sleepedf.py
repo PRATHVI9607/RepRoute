@@ -175,7 +175,7 @@ def test_windowset_from_fake_nights(tmp_path, rng: np.random.Generator) -> None:
     per_night = (last + m) - (first - m) + 1 - 2  # Movement time and ? dropped
     assert ws.window_n == 3072
     assert ws.window_n % 32 == 0
-    assert (ws.sample_rate_hz, ws.dataset_id) == (102.4, "sleepedf-v1")
+    assert (ws.sample_rate_hz, ws.dataset_id) == (102.4, "sleepedf-v2")
     assert len(ws) == 3 * per_night
     assert set(ws.condition.tolist()) == {"night"}
     assert sorted(set(ws.bearing_id.tolist())) == ["S00", "S01"]  # two nights of S00 share a unit
@@ -194,8 +194,8 @@ def test_windowset_from_fake_nights(tmp_path, rng: np.random.Generator) -> None:
     }
     assert (report["n_subjects"], report["n_nights"], report["n_catalogued"]) == (2, 3, 4)
     assert report["clipped_fraction"] == 0.0
-    # window 0 is epoch 10 of SC4001: resampled 3000 → 3072, then quantised at ±250 µV
-    expected, _ = quantise(resample_poly(phys[10 * 3000 : 11 * 3000], 128, 125), 250.0)
+    # window 0 is epoch 10 of SC4001: the whole night resampled 100 → 102.4 Hz, then cut
+    expected, _ = quantise(resample_poly(phys, 128, 125)[10 * 3072 : 11 * 3072], 250.0)
     assert np.array_equal(ws.x[0], expected)
     assert ws.label[: 70 - 10].tolist() == [0] * 60
     assert ws.label[60:65].tolist() == [1, 2, 3, 3, 4]
@@ -209,7 +209,7 @@ def test_epochs_past_the_signal_end_are_dropped(rng: np.random.Generator) -> Non
     ]
     eeg = rng.integers(-2048, 2048, size=20 * 3000).astype(np.int16)
     x, y, dropped = sleepedf.night_epochs(_edf([_eeg(eeg, 20)], 20, 30), _hypnogram(stages))
-    assert x.shape == (20, 3000)
+    assert x.shape == (20, 3072)
     assert y.tolist() == [0] * 10 + [2] + [0] * 9
     assert dropped == {"beyond_signal": 60 + 10 + 1 - 20}
     with pytest.raises(ValueError, match="starts"):

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import io
+import os
+import time
 import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,8 +28,11 @@ from kai.tasks.models import (
     LogMelNet,
     RawNet,
     SpecNet,
+    W2VClassifier,
 )
 
+# cuBLAS needs this for deterministic GEMMs; it is read when CUDA initialises, so set it at import
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 ONNX_OPSET = 17
 Step = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -53,7 +58,7 @@ def _deterministic() -> Iterator[None]:
     """Deterministic kernels for one training run; the caller's global setting is restored."""
     before = torch.are_deterministic_algorithms_enabled()
     warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
-    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.use_deterministic_algorithms(True, warn_only=False)
     try:
         yield
     finally:
@@ -346,3 +351,129 @@ def export_onnx(model: nn.Module, window_n: int) -> bytes:
         )
     onnx.checker.check_model(onnx.load_from_string(buf.getvalue()))
     return buf.getvalue()
+
+
+# --- wav2vec2 f_raw (ADR 0028 B) -----------------------------------------------------------------
+
+W2V_LR_BACKBONE = 3e-5
+W2V_LR_HEAD = 1e-3
+
+
+def grouped_holdout(groups: np.ndarray, rng: np.random.Generator, frac: float = 0.15) -> np.ndarray:
+    """Boolean mask of a speaker-grouped validation split (at least one group, never all)."""
+    ids = np.unique(groups)
+    if len(ids) < 2:
+        return np.zeros(len(groups), bool)
+    k = int(np.clip(round(frac * len(ids)), 1, len(ids) - 1))
+    return np.isin(groups, rng.choice(ids, size=k, replace=False))
+
+
+def predict_on(
+    model: nn.Module, x_float: np.ndarray, device: torch.device, batch: int = 64
+) -> np.ndarray:
+    """Logits on `device` in fp32 (no autocast); the model is returned to CPU afterwards."""
+    model.to(device).eval()
+    xt = torch.from_numpy(np.array(x_float, dtype=np.float32)).unsqueeze(1)
+    with torch.no_grad():
+        out = [model(xt[i : i + batch].to(device)).cpu().numpy() for i in range(0, len(xt), batch)]
+    model.cpu()
+    return np.concatenate(out)
+
+
+def train_w2v(
+    x: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    rng: np.random.Generator,
+    device: torch.device,
+    epochs: int = 5,
+    batch: int = 16,
+) -> W2VClassifier:
+    """Fine-tune wav2vec2-base (CNN feature extractor frozen) on the fold's train windows.
+
+    Early stopping looks only at a speaker-grouped slice of `x` itself (the caller passes the
+    fold's `train` units; ptrain / calib / test never get here). Seeds come from `rng`.
+    """
+    seed = int(rng.integers(2**31 - 1))
+    torch.manual_seed(seed)
+    val = grouped_holdout(groups, rng)
+    fit_x, fit_y = x[~val], y[~val]
+    model = W2VClassifier(n_classes(y))
+    for p in model.backbone.feature_extractor.parameters():
+        p.requires_grad_(False)
+    head_params = list(model.head.parameters())
+    body = [p for n, p in model.backbone.named_parameters() if p.requires_grad]
+    opt = torch.optim.AdamW(
+        [{"params": body, "lr": W2V_LR_BACKBONE}, {"params": head_params, "lr": W2V_LR_HEAD}],
+        weight_decay=1e-4,
+    )
+    amp = device.type == "cuda"
+    scaler = torch.amp.GradScaler(device.type, enabled=amp)
+    w = _class_weights(fit_y, n_classes(y), device)
+    model.to(device)
+    xt, yt = to_tensor(fit_x), torch.from_numpy(fit_y.astype(np.int64))
+    best, best_f1 = copy.deepcopy(model.state_dict()), -1.0
+    for _ in range(epochs):
+        model.train()
+        model.backbone.feature_extractor.eval()
+        order = rng.permutation(len(xt))
+        for b in range(0, len(xt), batch):
+            idx = torch.from_numpy(order[b : b + batch])
+            with torch.autocast(device.type, torch.float16, enabled=amp):
+                logits = model(xt[idx].to(device))
+            loss = F.cross_entropy(logits.float(), yt[idx].to(device), weight=w)
+            opt.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
+        if not val.any():
+            best = copy.deepcopy(model.state_dict())
+            continue
+        # batch 16: the optimizer state is still on the 4 GB GPU here (64 hit an OOM retry)
+        pred = predict_on(model, x[val].astype(np.float32) / 32768.0, device, 16).argmax(1)
+        model.to(device)
+        f1 = float(f1_score(y[val], pred, average="macro"))
+        if f1 > best_f1:
+            best, best_f1 = copy.deepcopy(model.state_dict()), f1
+    model.load_state_dict(best)
+    return model.cpu().eval()
+
+
+def export_w2v_onnx(model: W2VClassifier, window_n: int, tol: float = 1e-3) -> bytes:
+    """ONNX export plus a parity check against PyTorch on random clips; raises above `tol`."""
+    import onnxruntime as ort
+
+    blob = export_onnx(model, window_n)
+    probe = torch.from_numpy(
+        np.random.default_rng(0).uniform(-0.5, 0.5, (2, 1, window_n)).astype(np.float32)
+    )
+    with torch.no_grad():
+        ref = model.cpu().eval()(probe).numpy()
+    got = ort.InferenceSession(blob, providers=["CPUExecutionProvider"]).run(
+        None, {"x": probe.numpy()}
+    )[0]
+    diff = float(np.abs(ref - got).max())
+    if diff > tol:
+        raise RuntimeError(f"w2v ONNX parity failed: max |diff| {diff:.2e} > {tol:.0e}")
+    return blob
+
+
+def time_gpu_ms(
+    model: nn.Module, window_n: int, device: torch.device, warmup: int = 10, repeats: int = 50
+) -> tuple[float, float]:
+    """Cloud-side time of one window (batch 1, fp32): median and MAD in ms."""
+    model.to(device).eval()
+    x = torch.zeros(1, 1, window_n, device=device)
+    sync = torch.cuda.synchronize if device.type == "cuda" else (lambda: None)
+    times = []
+    with torch.no_grad():
+        for i in range(warmup + repeats):
+            sync()
+            t0 = time.perf_counter_ns()
+            model(x)
+            sync()
+            if i >= warmup:
+                times.append((time.perf_counter_ns() - t0) / 1e6)
+    model.cpu()
+    med = float(np.median(times))
+    return med, float(np.median(np.abs(np.array(times) - med)))

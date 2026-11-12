@@ -187,7 +187,7 @@ def test_model_d_and_model_dec_accounting(ctx) -> None:
     p, c = ctx.model.profiles, list(COMMITTEE)
     assert ctx.committee == COMMITTEE
     assert set(ctx.lam_d) == {0.1}
-    probe = ctx.model.overheads.t_probe_ms + (p.t_enc_ms + p.t_head_ms)[c].sum()
+    probe = ctx.model.overheads.t_probe_ms + (p.t_enc_ms + p.t_head_ms + p.t_dec_ms)[c].sum()
     assert ctx.model_d.overheads.t_probe_ms == pytest.approx(probe)
     assert (ctx.model_d.profiles.t_enc_ms[c] == 0).all()
     assert np.array_equal(ctx.model_d.profiles.size_bytes, p.size_bytes)
@@ -223,7 +223,9 @@ def test_edge_slowdown_scales_the_head_times_run_on_the_edge(ctx) -> None:
     """ADR 0027: f_raw (b14) and the committee heads run on the edge, so they slow down too."""
     p, c, k = ctx.model.profiles, list(COMMITTEE), 10.0
     model_d, _ = ev.committee_models(ctx.model, ctx.committee, k)
-    probe = ctx.model.overheads.t_probe_ms + (p.t_enc_ms + k * p.t_head_ms)[c].sum()
+    probe = (
+        ctx.model.overheads.t_probe_ms + (p.t_enc_ms + k * p.t_head_ms + k * p.t_dec_ms)[c].sum()
+    )
     assert model_d.overheads.t_probe_ms == pytest.approx(probe)
     assert ev.edge_model(ctx.model, k).profiles.t_enc_ms[0] == pytest.approx(7.0)
     assert ctx.model_edge.profiles.t_enc_ms[0] == pytest.approx(0.7)  # default: no slowdown
@@ -250,14 +252,14 @@ def test_required_bytes_uses_the_right_files(ctx, tmp_path) -> None:
     (fold / "heads" / "r4_summary.classes.npy").write_bytes(b"x" * 5)
     (fold / "predictor_logistic_ab.npz").write_bytes(b"x" * 50)
     (fold / "predictor_d_logistic_ab.npz").write_bytes(b"x" * 10)
-    (fold / "predictor_z_logistic_ab.npz").write_bytes(b"x" * 777)  # the latent one: never counted
+    (fold / "predictor_z_logistic_ab.npz").write_bytes(b"x" * 777)  # only the latent policies
     sz = ev.model_bytes(fold, "logistic")
     assert sz["f_raw"] == 900
     assert sz["enc/r3_spectral"] == 107
     assert sz["enc/r4_summary"] == 0  # classical codec: no stored file
     assert sz["head/r3_spectral"] == 20
     assert sz["head/r4_summary"] == 35
-    assert (sz["predictor"], sz["predictor_d"]) == (50, 10)
+    assert (sz["predictor"], sz["predictor_d"], sz["predictor_z"]) == (50, 10, 777)
     ctx = replace(ctx, sizes=sz)
     cell = ev.Cell("static", 1e6, 250.0, 0.0, 1, 0.1)
     names = (ev.EDGE_POLICY, "kai_s1_v0_late_committee", "kai_s1_v0", "b3_features", "oracle")
@@ -287,3 +289,104 @@ def test_certified_on_time_rate_is_reported(ctx) -> None:
     cell = ev.Cell("static", 1e6, 250.0, 0.0, 1, 0.1)
     (row,) = ev.run_cell(ctx, cell, "fidelity_first", "main", 30, 0, ("kai_s1_v0",))
     assert 0.0 <= row["rate_certified_on_time"] <= row["rate_certified"] + 1e-12
+
+
+def test_committee_probe_charges_the_decode_on_the_edge(ctx) -> None:
+    """ADR 0028 fix 4: decoding each member's payload on the edge joins the probe."""
+    p, c = ctx.model.profiles, list(COMMITTEE)
+    base = ctx.model.overheads.t_probe_ms + (p.t_enc_ms + p.t_head_ms)[c].sum()
+    model_d, _ = ev.committee_models(ctx.model, ctx.committee, 4.0)
+    assert model_d.overheads.t_probe_ms == pytest.approx(
+        base + 3.0 * p.t_head_ms[c].sum() + 4.0 * p.t_dec_ms[c].sum()
+    )
+
+
+def test_required_bytes_counts_non_members_and_the_latent_predictor(ctx) -> None:
+    sz = {"enc/r1_lossless": 40, "enc/r3_spectral": 100, "head/r3_spectral": 20, "predictor_d": 10,
+          "predictor_z": 500, "predictor": 50}  # fmt: skip
+    ctx = replace(ctx, sizes=sz)
+    sel = SimpleNamespace()
+    assert ev.required_bytes(ctx, "kai_s1_v0_late_committee", sel) == 100 + 20 + 40 + 10
+    assert ev.required_bytes(ctx, "kai_s1_v0_latent", sel) == 140 + 500
+    assert ev.required_bytes(ctx, "kai_s1_v0_zsel", sel) == 140 + 500 + 50  # + plain predictor
+    assert ev.required_bytes(ctx, "kai_s1_v0_ab_zsel", sel) == 140 + 500 + 50
+    assert ev.required_bytes(ctx, ev.CLASSICAL_POLICY, sel) == 140 + 50  # r1, r3 are classical
+
+
+def test_classical_policy_has_its_own_lambda_and_menu(ctx) -> None:
+    from kai.certify import crc
+
+    cal = ctx.scored.table.of("calib")
+    cls = [k for k, r in enumerate(REPS) if r in ev.CLASSICAL]
+    m = crc.first_loss_threshold(ctx.scored.ghat[cal][:, cls], ctx.scored.table.d[cal][:, cls])
+    assert ctx.lam_cls[0.1] == pytest.approx(crc.crc_threshold(m, 0.1))
+    cell = ev.Cell("static", 1e6, 250.0, 0.0, 1, 0.1)
+    _, cert = ev.policies(ctx, cell, "fidelity_first")[ev.CLASSICAL_POLICY]()
+    assert cert.lam == ctx.lam_cls[0.1]
+    assert cert.menu is not None
+    assert cert.menu.tolist() == [r in ev.CLASSICAL for r in REPS]
+    (row,) = ev.run_cell(ctx, cell, "fidelity_first", "main", 20, 0, (ev.CLASSICAL_POLICY,))
+    assert row["policy"] == ev.CLASSICAL_POLICY
+
+
+def test_measured_edge_head_times_replace_the_slowdown(ctx) -> None:
+    head = np.array([9.0, 8.0, 7.0, 6.0])
+    p, c = ctx.model.profiles, list(COMMITTEE)
+    model_d, _ = ev.committee_models(ctx.model, ctx.committee, 2.0, head)
+    assert model_d.overheads.t_probe_ms == pytest.approx(
+        ctx.model.overheads.t_probe_ms + (p.t_enc_ms + head + 2.0 * p.t_dec_ms)[c].sum()
+    )
+    assert ev.edge_model(ctx.model, 2.0, head).profiles.t_enc_ms[0] == 9.0
+
+
+def test_load_fold_passes_edge_head_ms_through(monkeypatch, ctx, fold) -> None:
+    seen = {}
+    real = ev.edge_model
+
+    def spy(m, k=1.0, h=None):
+        seen["h"] = h
+        return real(m, k, h)
+
+    monkeypatch.setattr(ev, "edge_model", spy)
+    _, path, _, _ = fold
+    head = np.array([5.0, 1.0, 1.0, 1.0])
+    ev.load_fold(
+        path, _profiles(), Overheads(0.05, 0.02, 0.01),
+        Prices(name="t", story="t", p_byte=1.0, p_j=0.0, p_cpu_ms=5.0, p_late_ms=1000.0),
+        EnergyModel(p_cpu_w=2.0, e_bit_j=1e-7), (0.1,), 0.05, 64.0, "logistic",
+        windows_path=path / "w.npz", edge_head_ms=head,
+    )  # fmt: skip
+    assert seen["h"] is head
+
+
+def test_measured_edge_decode_times_replace_the_slowdown(ctx) -> None:
+    head, dec = np.array([9.0, 8.0, 7.0, 6.0]), np.array([1.0, 2.0, 3.0, 4.0])
+    p, c = ctx.model.profiles, list(COMMITTEE)
+    model_d, _ = ev.committee_models(ctx.model, ctx.committee, 2.0, head, dec)
+    assert model_d.overheads.t_probe_ms == pytest.approx(
+        ctx.model.overheads.t_probe_ms + (p.t_enc_ms + head + dec)[c].sum()
+    )
+
+
+def test_gpu_cloud_head_time_for_raw_leaves_the_edge_cpu_time(monkeypatch, ctx, fold) -> None:
+    """ADR 0028 B: `f_raw_cloud_gpu_ms` in metrics.json is the cloud's raw head, b14 stays CPU."""
+    _, path, _, _ = fold
+    kw: dict = {
+        "profiles": _profiles(), "overheads": Overheads(0.05, 0.02, 0.01),
+        "prices": Prices(
+            name="t", story="t", p_byte=1.0, p_j=0.0, p_cpu_ms=5.0, p_late_ms=1000.0
+        ),
+        "energy": EnergyModel(p_cpu_w=2.0, e_bit_j=1e-7), "alphas": (0.1,), "delta": 0.05,
+        "window_period_ms": 64.0, "predictor_kind": "logistic", "windows_path": path / "w.npz",
+        "edge_slowdown": 2.0,
+    }  # fmt: skip
+    plain = ev.load_fold(path, **kw)
+    assert plain.model.profiles.t_head_ms[0] == pytest.approx(0.7)  # no key: unchanged
+    (path / "metrics.json").write_text(json.dumps({"f_raw_cloud_gpu_ms": 0.05}))
+    gpu = ev.load_fold(path, **kw)
+    assert gpu.model.profiles.t_head_ms[0] == 0.05
+    assert gpu.model.profiles.t_head_ms[1] == 0.05  # r1_lossless: the cloud runs f_raw too
+    assert gpu.model.profiles.t_head_ms[2] == pytest.approx(0.2)  # a feature head: unchanged
+    assert gpu.model_d.profiles.t_head_ms[0] == 0.05
+    assert gpu.model_edge.profiles.t_enc_ms[0] == pytest.approx(2.0 * 0.7)  # CPU, scaled
+    assert gpu.model_edge.profiles.t_enc_ms[0] == plain.model_edge.profiles.t_enc_ms[0]

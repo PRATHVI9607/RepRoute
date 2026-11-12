@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
@@ -65,6 +66,64 @@ def summarise(samples: np.ndarray) -> tuple[float, float, float]:
     return med, float(np.median(np.abs(samples - med))), float(np.quantile(samples, 0.95))
 
 
+_CPU = Path("/sys/devices/system/cpu")
+
+
+def _read(path: Path) -> str | None:
+    """First line of a sysfs/cgroup file; None if missing or unreadable (never crashes)."""
+    try:
+        return path.read_text().splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+
+
+def _read_int(path: Path) -> int | None:
+    v = _read(path)
+    return int(v) if v is not None and v.lstrip("-").isdigit() else None
+
+
+def p_core() -> int:
+    """The allowed core with the highest `cpuinfo_max_freq` (a P-core on hybrid CPUs); the lowest
+    id on ties, and when the frequencies are unreadable."""
+    cores = sorted(os.sched_getaffinity(0))
+    freq = {c: _read_int(_CPU / f"cpu{c}/cpufreq/cpuinfo_max_freq") or 0 for c in cores}
+    return max(cores, key=lambda c: (freq[c], -c))
+
+
+def pin_process(cores: set[int]) -> None:
+    """Pin every thread of this process: `sched_setaffinity(0)` moves only the calling thread,
+    so ONNX Runtime / BLAS workers would keep running on other cores (ADR 0028 §14)."""
+    for tid in os.listdir("/proc/self/task"):
+        try:
+            os.sched_setaffinity(int(tid), cores)
+        except (ProcessLookupError, FileNotFoundError):  # the thread exited meanwhile
+            continue
+
+
+def core_metadata(core: int) -> dict[str, object]:
+    """What a timing run on `core` needs to be interpreted: frequency, turbo, quota, throttling.
+    Every entry is None when its file does not exist on this machine."""
+    cpu = _CPU / f"cpu{core}"
+    no_turbo = _read_int(_CPU / "intel_pstate/no_turbo")
+    boost = _read_int(_CPU / "cpufreq/boost")
+    cgroup = _read(Path("/sys/fs/cgroup/cpu.max"))
+    throttle = {
+        name: _read_int(cpu / f"thermal_throttle/{name}")
+        for name in ("core_throttle_count", "package_throttle_count")
+    }
+    return {
+        "core": core,
+        "scaling_cur_freq_khz": _read_int(cpu / "cpufreq/scaling_cur_freq"),
+        "scaling_max_freq_khz": _read_int(cpu / "cpufreq/scaling_max_freq"),
+        "cpuinfo_max_freq_khz": _read_int(cpu / "cpufreq/cpuinfo_max_freq"),
+        "turbo_enabled": None
+        if no_turbo is None and boost is None
+        else (no_turbo == 0 if no_turbo is not None else boost == 1),
+        "cgroup_cpu_max": cgroup,
+        "thermal_throttle": throttle,
+    }
+
+
 def _burn(core: int) -> None:
     os.sched_setaffinity(0, {core})
     while True:
@@ -72,17 +131,17 @@ def _burn(core: int) -> None:
 
 
 class co_tenants:
-    """Pin this process to one core and start `m` busy processes on the same core."""
+    """Pin all threads of this process to one core (default: a P-core) + `m` busy co-tenants."""
 
     def __init__(self, m: int, core: int | None = None) -> None:
         self.m = m
-        self.core = max(os.sched_getaffinity(0)) if core is None else core
+        self.core = p_core() if core is None else core
         self._procs: list[mp.process.BaseProcess] = []
         self._saved: set[int] = set()
 
     def __enter__(self) -> co_tenants:
         self._saved = os.sched_getaffinity(0)
-        os.sched_setaffinity(0, {self.core})
+        pin_process({self.core})
         ctx = mp.get_context("spawn")  # the parent holds ONNX Runtime threads: never fork it
         self._procs = [
             ctx.Process(target=_burn, args=(self.core,), daemon=True) for _ in range(self.m)
@@ -97,7 +156,7 @@ class co_tenants:
         for p in self._procs:
             p.terminate()
             p.join()
-        os.sched_setaffinity(0, self._saved)
+        pin_process(self._saved)
 
 
 def fit_load_exponent(loads: list[float], mean_ms: list[float]) -> float:

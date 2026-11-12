@@ -38,6 +38,12 @@ def folds(
     f_raw: Annotated[
         str, typer.Option(help="env | kin | spec | wave; default: the dataset's")
     ] = "",
+    f_raw_candidates: Annotated[
+        str, typer.Option(help="comma list, first = incumbent; default: the dataset's")
+    ] = "",
+    f_raw_rule: Annotated[
+        str, typer.Option(help="ptrain_bootstrap | ptrain_best; default: the dataset's")
+    ] = "",
     head_trials: int = 10,
     bottleneck: Annotated[
         str, typer.Option(help="R6 encoder: generic | teacher_front; default: the dataset's")
@@ -51,6 +57,9 @@ def folds(
     ] = False,
     device: str = "auto",
     force: bool = False,
+    stale: Annotated[
+        bool, typer.Option(help="retrain only folds of another recipe or windows; keep the rest")
+    ] = False,
     overrides: Overrides = None,
 ) -> None:
     """Train models and build the Disagreement Table for leave-bearings-out folds."""
@@ -66,10 +75,15 @@ def folds(
     )
     manifest = load_manifest(manifest_path)
     fingerprint = _windows_fingerprint(ws)
+    candidates = tuple(c for c in f_raw_candidates.split(",") if c) or tuple(
+        getattr(cfg.dataset, "f_raw_candidates", ())
+    )
     fold_cfg = FoldConfig(
-        f_raw or cfg.dataset.f_raw,
+        f_raw or (candidates[0] if candidates else cfg.dataset.f_raw),
         epochs_raw,
         epochs_latent,
+        f_raw_candidates=candidates,
+        f_raw_rule=(f_raw_rule or getattr(cfg.dataset, "f_raw_rule", "")) if candidates else "",
         head_trials=head_trials,
         bottleneck=bottleneck or cfg.dataset.bottleneck,
         bottleneck_dim=bottleneck_dim,
@@ -89,21 +103,19 @@ def folds(
         )
         if (out / "metrics.json").exists() and not force:
             stored = out / "fold_config.json"
-            if not stored.exists() or json.loads(stored.read_text()) != fold_cfg.recipe():
-                raise typer.BadParameter(
-                    f"{out} was trained with another recipe (or an unrecorded one); "
-                    "rerun with --force to retrain it"
-                )
             stamp = out / "windows.json"
-            if not stamp.exists():  # trust on first use
+            problem = ""
+            if not stored.exists() or json.loads(stored.read_text()) != fold_cfg.recipe():
+                problem = "was trained with another recipe (or an unrecorded one)"
+            elif not stamp.exists():  # trust on first use
                 stamp.write_text(json.dumps({"fingerprint": fingerprint}))
             elif json.loads(stamp.read_text()).get("fingerprint") != fingerprint:
-                raise typer.BadParameter(
-                    f"{out} was trained on other windows (the dataset file was rebuilt); "
-                    "rerun with --force to retrain it"
-                )
-            typer.echo(f"skip {out.name} (done, same recipe)")
-            continue
+                problem = "was trained on other windows (the dataset file was rebuilt)"
+            if problem and not stale:
+                raise typer.BadParameter(f"{out} {problem}; rerun with --force or --stale")
+            if not problem:
+                typer.echo(f"skip {out.name} (done, same recipe)")
+                continue
         t0 = time.perf_counter()
         _, metrics = run_fold(ws, fold, fold_cfg, out, work() / "data/interim/cache")
         (out / "windows.json").write_text(json.dumps({"fingerprint": fingerprint}))

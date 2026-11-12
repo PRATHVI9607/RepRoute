@@ -44,6 +44,10 @@ def pack(frame: Frame) -> bytes:
         raise FrameError(f"contract_hash must be 4 bytes, got {len(frame.contract_hash)}")
     if len(frame.payload) > MAX_PAYLOAD_BYTES:
         raise FrameError(f"payload of {len(frame.payload)} bytes exceeds {MAX_PAYLOAD_BYTES}")
+    if not 0 <= frame.rep_code <= 255:
+        raise FrameError(f"rep_code {frame.rep_code} does not fit in one byte")
+    if not 0 <= frame.window_id < 2**32:
+        raise FrameError(f"window_id {frame.window_id} does not fit in 32 bits")
     head = _HEADER.pack(
         MAGIC,
         PROTO_VER,

@@ -1,0 +1,11 @@
+# HMC sleep staging v1.1, EEG C4-M1, W / N1 / N2 / N3 / REM (confirmatory dataset, ADR 0028 §4); paths relative to KAI_WORK=transfer/hmc
+id: hmc-v1
+windows: data/processed/hmc.npz
+splits_dir: data/splits
+folds_dir: artifacts/folds
+f_raw: wave  # incumbent; the per-fold choice below picks between the candidates (ADR 0028 §4, §7)
+bottleneck: generic
+# ADR 0028 §7: per fold, the candidate with the best ptrain macro-F1 (ties: smaller model).
+# Candidates fixed 2026-11-12, before HMC is downloaded: the two Sleep-EDF models.
+f_raw_candidates: [wave, spec]
+f_raw_rule: ptrain_best

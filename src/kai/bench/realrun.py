@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -91,11 +92,16 @@ def cloud_process(
     bundle_dir: Path,
     telemetry_out: Path | None = None,
 ) -> Iterator[int]:
-    """Start `kai.cloud.server` on a free local port; yield the port once it is listening."""
+    """Start `kai.cloud.server` on a free local port; yield the port once it is listening.
+
+    `KAI_CLOUD_CPUS` (e.g. "0-3") runs it under `taskset -c`, off the (slow) edge core.
+    """
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
+    cpus = os.environ.get("KAI_CLOUD_CPUS")
     cmd = [
+        *(["taskset", "-c", cpus] if cpus else []),
         sys.executable,
         "-m",
         "kai.cloud.server",

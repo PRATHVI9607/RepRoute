@@ -176,6 +176,7 @@ def test_stored_grid_results_are_reused_and_extended_with_new_policies(
 
     monkeypatch.setenv("KAI_WORK", str(tmp_path))
     monkeypatch.setattr(ex, "provenance", lambda cfg: {"config_hash": "h", "split_id": "s"})
+    monkeypatch.setattr(ex, "known_policies", lambda cfg, which: {"a", "b"})
     pd.DataFrame({"policy": ["a", "b"], "cost": [1.0, 2.0]}).to_parquet(
         out_dir("e3") / "results.parquet"
     )
