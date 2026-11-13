@@ -476,13 +476,7 @@ uv run --no-sync kai edge artifacts/bundles/latest_bundle/ data/processed/replay
 
 ---
 
-## 🖼 Academic Phase Deck Preview
 
-Below is an overview of the RepRoute research formulation, system architecture, and empirical findings presented in the academic project review:
-
-<div align="center">
-  <img src="assets/screenshots/slide_deck_overview.png" alt="RepRoute Academic Slide Deck Overview" width="95%"/>
-</div>
 
 ---
 
