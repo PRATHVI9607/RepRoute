@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" width="100%" height="100%">
+  <defs>
+    <pattern id="chartGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#172233" stroke-width="0.75" stroke-opacity="0.5"/>
+    </pattern>
+    <linearGradient id="barRaw" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF5722"/>
+      <stop offset="100%" stop-color="#FF8C32"/>
+    </linearGradient>
+    <linearGradient id="barLossless" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+    <linearGradient id="barFeatures" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+    <linearGradient id="barLearned" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="440" fill="#080D16"/>
+  <rect width="900" height="440" fill="url(#chartGrid)"/>
+
+  <!-- Title & Subtitle -->
+  <text x="40" y="38" font-family="'Segoe UI', system-ui, sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">Payload Size per Representation (R0–R7)</text>
+  <text x="40" y="58" font-family="'Segoe UI', monospace" font-size="11" fill="#94A3B8">LOGARITHMIC SCALE · 8,190 BYTES RAW DOWN TO 16 BYTES LEARNED LATENT (99.8% REDUCTION)</text>
+
+  <!-- Legend -->
+  <g transform="translate(480, 25)">
+    <circle cx="10" cy="10" r="5" fill="#FF8C32"/>
+    <text x="20" y="14" font-family="'Segoe UI', sans-serif" font-size="10" fill="#F1F5F9">Raw</text>
+
+    <circle cx="70" cy="10" r="5" fill="#38BDF8"/>
+    <text x="80" y="14" font-family="'Segoe UI', sans-serif" font-size="10" fill="#F1F5F9">Wavelet / Lossless</text>
+
+    <circle cx="195" cy="10" r="5" fill="#34D399"/>
+    <text x="205" y="14" font-family="'Segoe UI', sans-serif" font-size="10" fill="#F1F5F9">Engineered Features</text>
+
+    <circle cx="310" cy="10" r="5" fill="#C084FC"/>
+    <text x="320" y="14" font-family="'Segoe UI', sans-serif" font-size="10" fill="#F1F5F9">Learned Latents</text>
+  </g>
+
+  <!-- Chart Canvas Area (x=160, y=90, w=680, h=300) -->
+  <!-- Grid Lines at Log Marks: 16B (log=1.2), 32B (1.5), 128B (2.1), 1024B (3.0), 8192B (3.91) -->
+  <!-- Scale formula: x = 160 + (log10(bytes) - 1.0) / (3.913 - 1.0) * 620 -->
+
+  <!-- Vertical grid lines -->
+  <line x1="202" y1="80" x2="202" y2="385" stroke="#1E2E42" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="202" y="405" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="middle">16 B</text>
+
+  <line x1="267" y1="80" x2="267" y2="385" stroke="#1E2E42" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="267" y="405" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="middle">32 B</text>
+
+  <line x1="395" y1="80" x2="395" y2="385" stroke="#1E2E42" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="395" y="405" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="middle">128 B</text>
+
+  <line x1="588" y1="80" x2="588" y2="385" stroke="#1E2E42" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="588" y="405" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="middle">1,024 B (1 KB)</text>
+
+  <line x1="780" y1="80" x2="780" y2="385" stroke="#1E2E42" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="780" y="405" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="middle">8,190 B (Raw)</text>
+
+  <!-- Bars (y starts 90, height=24, spacing=33) -->
+  <!-- R0: Raw 8,190 B (width = 620) -->
+  <text x="148" y="106" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#FF8C32" text-anchor="end">R0 Raw (int16)</text>
+  <rect x="160" y="90" width="620" height="22" rx="4" fill="url(#barRaw)"/>
+  <text x="790" y="105" font-family="'Segoe UI', monospace" font-size="10.5" font-weight="700" fill="#FFD8A8">8,190 B (100%)</text>
+
+  <!-- R1: Lossless zstd ~3,000 B (width ~ 527) -->
+  <text x="148" y="139" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#F1F5F9" text-anchor="end">R1 Lossless (zstd)</text>
+  <rect x="160" y="123" width="527" height="22" rx="4" fill="url(#barLossless)"/>
+  <text x="695" y="138" font-family="'Segoe UI', monospace" font-size="10" fill="#BAE6FD">~3,000 B (36.6%)</text>
+
+  <!-- R2a: Wavelet 1% ~1,800 B (width ~ 480) -->
+  <text x="148" y="172" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#F1F5F9" text-anchor="end">R2a Wavelet ε=1%</text>
+  <rect x="160" y="156" width="480" height="22" rx="4" fill="url(#barLossless)"/>
+  <text x="648" y="171" font-family="'Segoe UI', monospace" font-size="10" fill="#BAE6FD">~1,800 B (22.0%)</text>
+
+  <!-- R2b: Wavelet 5% ~900 B (width ~ 416) -->
+  <text x="148" y="205" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#F1F5F9" text-anchor="end">R2b Wavelet ε=5%</text>
+  <rect x="160" y="189" width="416" height="22" rx="4" fill="url(#barLossless)"/>
+  <text x="584" y="204" font-family="'Segoe UI', monospace" font-size="10" fill="#BAE6FD">~900 B (11.0%)</text>
+
+  <!-- R3: Spectral 128 B (width = 236) -->
+  <text x="148" y="238" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#34D399" text-anchor="end">R3 Spectral Bands</text>
+  <rect x="160" y="222" width="236" height="22" rx="4" fill="url(#barFeatures)"/>
+  <text x="404" y="237" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#A7F3D0">128 B (1.56%)</text>
+
+  <!-- R4: Summary Stats 24 B (width = 81) -->
+  <text x="148" y="271" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#34D399" text-anchor="end">R4 Statistics</text>
+  <rect x="160" y="255" width="81" height="22" rx="4" fill="url(#barFeatures)"/>
+  <text x="249" y="270" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#A7F3D0">24 B (0.29%)</text>
+
+  <!-- R5: 1D-CNN AE 32 B (width = 108) -->
+  <text x="148" y="304" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#C084FC" text-anchor="end">R5 AE Latent</text>
+  <rect x="160" y="288" width="108" height="22" rx="4" fill="url(#barLearned)"/>
+  <text x="276" y="303" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#E9D5FF">32 B (0.39%)</text>
+
+  <!-- R6: Bottleneck 16 B (width = 44) -->
+  <text x="148" y="337" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="700" fill="#00E5FF" text-anchor="end">R6 Bottleneck</text>
+  <rect x="160" y="321" width="44" height="22" rx="4" fill="#00E5FF"/>
+  <text x="212" y="336" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#00E5FF">16 B (0.20%) ★ Oracle choice</text>
+
+  <!-- R7: VQ-VAE 16 B (width = 44) -->
+  <text x="148" y="370" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="600" fill="#C084FC" text-anchor="end">R7 VQ-VAE</text>
+  <rect x="160" y="354" width="44" height="22" rx="4" fill="url(#barLearned)"/>
+  <text x="212" y="369" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#E9D5FF">16 B (0.20%)</text>
+</svg>

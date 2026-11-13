@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 620" width="100%" height="100%">
+  <defs>
+    <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0E1929"/>
+      <stop offset="100%" stop-color="#080E18"/>
+    </linearGradient>
+    <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1F1517"/>
+      <stop offset="100%" stop-color="#0E0A0C"/>
+    </linearGradient>
+    <linearGradient id="blueGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="100%" stop-color="#0066FE"/>
+    </linearGradient>
+    <pattern id="gridPattern" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#152132" stroke-width="0.75" stroke-opacity="0.4"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#00E5FF"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#FF8C32"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#22C55E"/>
+    </marker>
+    <style>
+      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: #FFFFFF; }
+      .box-sub { font-family: 'Segoe UI', monospace; font-size: 10px; fill: #94A3B8; }
+      .tag { font-family: 'Segoe UI', sans-serif; font-size: 9px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="920" height="620" fill="#070A10"/>
+  <rect width="920" height="620" fill="url(#gridPattern)"/>
+
+  <!-- Top Title Bar -->
+  <text x="40" y="38" font-family="'Segoe UI', sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">RepRoute End-to-End Execution Pipeline</text>
+  <text x="40" y="56" font-family="'Segoe UI', monospace" font-size="11" fill="#00E5FF">TWO-PLANE ARCHITECTURE · SELECT-THEN-ENCODE · NO TORCH ON EDGE</text>
+
+  <!-- Left: EDGE PLANE (x=30, y=75, w=540, h=515) -->
+  <rect x="30" y="75" width="540" height="515" rx="10" fill="url(#edgeGrad)" stroke="#19334D" stroke-width="1.5"/>
+  <rect x="30" y="75" width="540" height="32" rx="10" fill="#0E2238"/>
+  <rect x="30" y="97" width="540" height="10" fill="#0E2238"/>
+  <circle cx="48" cy="91" r="5" fill="#00E5FF"/>
+  <text x="62" y="96" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" fill="#00E5FF" letter-spacing="1">EDGE PLANE (Raspberry Pi / Cgroup / Runtime — numpy + onnxruntime only)</text>
+
+  <!-- Stage 1: Vibration Sensor & Windowing -->
+  <g transform="translate(50, 125)">
+    <rect x="0" y="0" width="230" height="64" rx="6" fill="#0D1624" stroke="#00BFFF" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">1. Industrial Sensor</text>
+    <text x="14" y="42" class="box-sub">64 kHz sampling (Paderborn PU)</text>
+    <text x="14" y="55" class="box-sub">ADC Quantization: int16</text>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 280 157 L 310 157" fill="none" stroke="#00E5FF" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Stage 2: 64ms Window -->
+  <g transform="translate(315, 125)">
+    <rect x="0" y="0" width="230" height="64" rx="6" fill="#0D1624" stroke="#00BFFF" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">2. 64 ms Sensor Window</text>
+    <text x="14" y="42" class="box-sub">N = 4,096 samples</text>
+    <text x="14" y="55" class="box-sub">Raw size: 8,190 Bytes</text>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M 430 189 L 430 205 L 165 205 L 165 220" fill="none" stroke="#00E5FF" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Stage 3: Lightweight Probe -->
+  <g transform="translate(50, 225)">
+    <rect x="0" y="0" width="230" height="68" rx="6" fill="#0D1624" stroke="#00BFFF" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">3. Lightweight Probe φ(x)</text>
+    <text x="14" y="42" class="box-sub">20 features: FFT energy, RMS, peak</text>
+    <text x="14" y="55" class="box-sub">kurtosis, skew, crest · purely numpy</text>
+  </g>
+
+  <!-- Arrow 3 -> 4 -->
+  <path d="M 280 259 L 310 259" fill="none" stroke="#00E5FF" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Stage 4: Sufficiency Predictor -->
+  <g transform="translate(315, 225)">
+    <rect x="0" y="0" width="230" height="68" rx="6" fill="#0D1624" stroke="#00BFFF" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">4. Sufficiency Predictor ĝ_r</text>
+    <text x="14" y="42" class="box-sub">K logistic/MLP scores: P(d_r = 1 | φ)</text>
+    <text x="14" y="55" class="box-sub">Trained strictly on ptrain partition</text>
+  </g>
+
+  <!-- Arrow 4 -> 5 -->
+  <path d="M 430 293 L 430 310 L 165 310 L 165 325" fill="none" stroke="#22C55E" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+
+  <!-- Stage 5: Conformal Risk Control Safe Set -->
+  <g transform="translate(50, 330)">
+    <rect x="0" y="0" width="230" height="74" rx="6" fill="#0B201A" stroke="#22C55E" stroke-width="1.5"/>
+    <text x="14" y="24" class="box-title" fill="#22C55E">5. CRC Safe Set S_λ(x)</text>
+    <text x="14" y="42" class="box-sub" fill="#6EE7B7">S_λ = {raw} ∪ { r : ĝ_r ≤ λ̂ }</text>
+    <text x="14" y="56" class="box-sub" fill="#A7F3D0">Statistical bound: E[risk] ≤ α</text>
+    <text x="14" y="68" class="box-sub" fill="#34D399">Calibrated on unseen bearings</text>
+  </g>
+
+  <!-- Arrow 5 -> 6 -->
+  <path d="M 280 367 L 310 367" fill="none" stroke="#00E5FF" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Stage 6: Cost-Aware Selector -->
+  <g transform="translate(315, 330)">
+    <rect x="0" y="0" width="230" height="74" rx="6" fill="#0D1624" stroke="#00BFFF" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">6. Cost-Aware Selector π</text>
+    <text x="14" y="42" class="box-sub">Min: bytes·p_b + J·p_j + late·p_l</text>
+    <text x="14" y="56" class="box-sub">Feasible: Latency ≤ D, Queue Q</text>
+    <text x="14" y="68" class="box-sub">Policies: Greedy (S1), MPC (S2)</text>
+  </g>
+
+  <!-- Arrow 6 -> 7 -->
+  <path d="M 430 404 L 430 422 L 295 422 L 295 438" fill="none" stroke="#00E5FF" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Stage 7: Select-then-Encode -->
+  <g transform="translate(145, 442)">
+    <rect x="0" y="0" width="310" height="70" rx="6" fill="#0D1B2A" stroke="#00E5FF" stroke-width="1.4"/>
+    <text x="14" y="24" class="box-title">7. Encode Chosen Representation</text>
+    <text x="14" y="42" class="box-sub">Only ONE encoder executes (Select-then-Encode)</text>
+    <text x="14" y="58" class="box-sub">Frame: [28-byte Header | Payload | CRC32]</text>
+  </g>
+
+  <!-- Channel Link Connector -->
+  <path d="M 455 477 L 595 477" fill="none" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrow)"/>
+  <rect x="475" y="455" width="105" height="18" rx="3" fill="#0C1B2A" stroke="#00BFFF" stroke-width="0.8"/>
+  <text x="480" y="468" font-family="'Segoe UI', monospace" font-size="9" font-weight="700" fill="#00E5FF">SOCKET / NETEM</text>
+
+  <!-- Right: CLOUD PLANE (x=600, y=75, w=290, h=515) -->
+  <rect x="600" y="75" width="290" height="515" rx="10" fill="url(#cloudGrad)" stroke="#3D1D16" stroke-width="1.5"/>
+  <rect x="600" y="75" width="290" height="32" rx="10" fill="#2E120D"/>
+  <rect x="600" y="97" width="290" height="10" fill="#2E120D"/>
+  <circle cx="618" cy="91" r="5" fill="#FF8C32"/>
+  <text x="632" y="96" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" fill="#FF8C32" letter-spacing="1">CLOUD PLANE (Async Server)</text>
+
+  <!-- Cloud Step 1: Ingestion & Validation -->
+  <g transform="translate(620, 125)">
+    <rect x="0" y="0" width="250" height="70" rx="6" fill="#1C1014" stroke="#FF8C32" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">8. Ingestion &amp; Verification</text>
+    <text x="14" y="42" class="box-sub">Contract Hash &amp; CRC32 Validation</text>
+    <text x="14" y="56" class="box-sub">Anti-drift lockfile verification</text>
+  </g>
+
+  <!-- Arrow Cloud 1 -> 2 -->
+  <path d="M 745 195 L 745 220" fill="none" stroke="#FF8C32" stroke-width="1.5" marker-end="url(#arrowOrange)"/>
+
+  <!-- Cloud Step 2: Head Zoo & Inference -->
+  <g transform="translate(620, 225)">
+    <rect x="0" y="0" width="250" height="88" rx="6" fill="#1C1014" stroke="#FF8C32" stroke-width="1.2"/>
+    <text x="14" y="24" class="box-title">9. Specialized Head Zoo</text>
+    <text x="14" y="42" class="box-sub">R0, R1, R2a/b → Reference f_raw</text>
+    <text x="14" y="56" class="box-sub">R3, R4 → LightGBM Classifier</text>
+    <text x="14" y="70" class="box-sub">R5, R6, R7 → Distilled MLP Heads</text>
+  </g>
+
+  <!-- Arrow Cloud 2 -> 3 -->
+  <path d="M 745 313 L 745 340" fill="none" stroke="#FF8C32" stroke-width="1.5" marker-end="url(#arrowOrange)"/>
+
+  <!-- Cloud Step 3: Diagnostic Decision -->
+  <g transform="translate(620, 345)">
+    <rect x="0" y="0" width="250" height="84" rx="6" fill="#1C1014" stroke="#22C55E" stroke-width="1.5"/>
+    <text x="14" y="24" class="box-title" fill="#22C55E">10. Fault Diagnosis</text>
+    <text x="14" y="44" class="box-sub" fill="#86EFAC">3-Class Output:</text>
+    <text x="14" y="60" class="box-sub" fill="#F1F5F9">Normal / Inner Race / Outer Race</text>
+    <text x="14" y="74" class="box-sub" fill="#6EE7B7">Reference f_raw Macro-F1 = 0.604</text>
+  </g>
+
+  <!-- Cloud Step 4: Audit & ACI Loop -->
+  <g transform="translate(620, 455)">
+    <rect x="0" y="0" width="250" height="75" rx="6" fill="#131F2A" stroke="#00BFFF" stroke-width="1"/>
+    <text x="14" y="24" class="box-title">11. Audit &amp; Drift Monitor</text>
+    <text x="14" y="42" class="box-sub">p_audit ≈ 2% sends raw to inspect d_r</text>
+    <text x="14" y="58" class="box-sub">ACI online calibration updates</text>
+  </g>
+
+  <!-- Feedback Line back to Edge -->
+  <path d="M 620 495 L 475 495 L 475 367" fill="none" stroke="#22C55E" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrowGreen)"/>
+  <rect x="490" y="500" width="115" height="16" rx="3" fill="#0A1C16"/>
+  <text x="495" y="512" font-family="'Segoe UI', monospace" font-size="8.5" fill="#34D399">ACI AUDIT FEEDBACK</text>
+</svg>

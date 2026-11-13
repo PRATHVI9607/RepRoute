@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="gradCert" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0E2135"/>
+      <stop offset="100%" stop-color="#07111D"/>
+    </linearGradient>
+    <linearGradient id="gradOpt" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#261612"/>
+      <stop offset="100%" stop-color="#120A08"/>
+    </linearGradient>
+    <pattern id="dotGrid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#1C283C" opacity="0.6"/>
+    </pattern>
+    <marker id="arrowB" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#00E5FF"/>
+    </marker>
+    <marker id="arrowO" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#FF8C32"/>
+    </marker>
+  </defs>
+
+  <rect width="920" height="380" fill="#06090F"/>
+  <rect width="920" height="380" fill="url(#dotGrid)"/>
+
+  <!-- Left Card: STAGE 1 CERTIFY -->
+  <g transform="translate(30, 25)">
+    <rect x="0" y="0" width="415" height="330" rx="10" fill="url(#gradCert)" stroke="#00BFFF" stroke-width="1.5"/>
+    <rect x="0" y="0" width="415" height="42" rx="10" fill="#0B2A4A"/>
+    <rect x="0" y="25" width="415" height="17" fill="#0B2A4A"/>
+
+    <circle cx="24" cy="21" r="6" fill="#00E5FF"/>
+    <text x="38" y="26" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="800" fill="#FFFFFF" letter-spacing="0.5">STAGE 1: STATISTICAL CERTIFICATION</text>
+    <text x="38" y="38" font-family="'Segoe UI', monospace" font-size="9" fill="#38BDF8">DISTRIBUTION-FREE CONFORMAL RISK CONTROL</text>
+
+    <!-- Content Blocks -->
+    <g transform="translate(20, 60)">
+      <!-- Step 1A: Cheap Probe -->
+      <rect x="0" y="0" width="375" height="52" rx="6" fill="#081422" stroke="#16324F" stroke-width="1"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#38BDF8">Probe Feature Extraction φ(x)</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#94A3B8">20 cheap features (RMS, Kurtosis, FFT bands) · &lt; 0.4 ms</text>
+
+      <!-- Step 1B: Sufficiency Predictor -->
+      <rect x="0" y="66" width="375" height="52" rx="6" fill="#081422" stroke="#16324F" stroke-width="1"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#38BDF8">Sufficiency Predictor ĝ_r(φ)</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#94A3B8">Scores probability of disagreement with raw reference model</text>
+
+      <!-- Step 1C: Conformal Risk Control -->
+      <rect x="0" y="132" width="375" height="66" rx="6" fill="#06231C" stroke="#22C55E" stroke-width="1.2"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#22C55E">Safe Set Calibration S_λ(x)</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#A7F3D0">S_λ(x) = { r_raw } ∪ { r : ĝ_r(φ(x)) ≤ λ̂(α) }</text>
+      <text x="14" y="54" font-family="'Segoe UI', monospace" font-size="10" font-weight="700" fill="#34D399">PROVABLE GUARANTEE: E[ d_π(x) ] ≤ α = 0.05</text>
+    </g>
+
+    <!-- Bottom summary tag -->
+    <rect x="20" y="280" width="375" height="30" rx="4" fill="#0B1A2C"/>
+    <text x="30" y="300" font-family="'Segoe UI', sans-serif" font-size="10.5" font-weight="600" fill="#38BDF8">✓ Safe set valid on held-out physical bearing units</text>
+  </g>
+
+  <!-- Central Bridge Arrow -->
+  <g transform="translate(450, 160)">
+    <circle cx="10" cy="10" r="16" fill="#131E2E" stroke="#00E5FF" stroke-width="1.5"/>
+    <text x="10" y="14" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="800" fill="#00E5FF" text-anchor="middle">→</text>
+    <text x="10" y="40" font-family="'Segoe UI', monospace" font-size="8.5" fill="#94A3B8" text-anchor="middle">SAFE SET</text>
+  </g>
+
+  <!-- Right Card: STAGE 2 OPTIMIZE -->
+  <g transform="translate(475, 25)">
+    <rect x="0" y="0" width="415" height="330" rx="10" fill="url(#gradOpt)" stroke="#FF8C32" stroke-width="1.5"/>
+    <rect x="0" y="0" width="415" height="42" rx="10" fill="#3D1810"/>
+    <rect x="0" y="25" width="415" height="17" fill="#3D1810"/>
+
+    <circle cx="24" cy="21" r="6" fill="#FF8C32"/>
+    <text x="38" y="26" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="800" fill="#FFFFFF" letter-spacing="0.5">STAGE 2: COST OPTIMIZATION</text>
+    <text x="38" y="38" font-family="'Segoe UI', monospace" font-size="9" fill="#FB923C">SWAPPABLE POLICY · ZERO RISK TO THE GUARANTEE</text>
+
+    <!-- Content Blocks -->
+    <g transform="translate(20, 60)">
+      <!-- Step 2A: Live State Ingestion -->
+      <rect x="0" y="0" width="375" height="52" rx="6" fill="#1A0D0A" stroke="#451E14" stroke-width="1"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#FB923C">Real-Time State Vector z_t</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#94A3B8">Live Bandwidth B̂, Queue backlog Q, CPU load ρ, Deadline D</text>
+
+      <!-- Step 2B: Multi-Objective Cost Model -->
+      <rect x="0" y="66" width="375" height="52" rx="6" fill="#1A0D0A" stroke="#451E14" stroke-width="1"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#FB923C">Physical Cost Model</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#FDBA74">cost = p_byte·Bytes + p_J·Joules + p_cpu·t_edge + p_late·Lateness</text>
+
+      <!-- Step 2C: Feasible Selection -->
+      <rect x="0" y="132" width="375" height="66" rx="6" fill="#1F130B" stroke="#F59E0B" stroke-width="1.2"/>
+      <text x="14" y="22" font-family="'Segoe UI', sans-serif" font-size="11.5" font-weight="700" fill="#FBBF24">Optimal Feasible Selection π</text>
+      <text x="14" y="38" font-family="'Segoe UI', monospace" font-size="10" fill="#FDE68A">r* = argmin_{r ∈ S_λ(x) ∩ Feasible(z)} cost(r | z)</text>
+      <text x="14" y="54" font-family="'Segoe UI', monospace" font-size="10" fill="#CBD5E1">Guaranteed valid whether π is Greedy, MPC, Bandit, or RL</text>
+    </g>
+
+    <!-- Bottom summary tag -->
+    <rect x="20" y="280" width="375" height="30" rx="4" fill="#24130F"/>
+    <text x="30" y="300" font-family="'Segoe UI', sans-serif" font-size="10.5" font-weight="600" fill="#FB923C">✓ Optimizer never alters or violates the statistical certificate</text>
+  </g>
+</svg>

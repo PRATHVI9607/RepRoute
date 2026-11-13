@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="100%" height="100%">
+  <defs>
+    <pattern id="dgPattern" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#152132" stroke-width="0.75" stroke-opacity="0.4"/>
+    </pattern>
+    <linearGradient id="barF1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="barRisk" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="420" fill="#080C14"/>
+  <rect width="900" height="420" fill="url(#dgPattern)"/>
+
+  <!-- Title -->
+  <text x="40" y="38" font-family="'Segoe UI', sans-serif" font-size="20" font-weight="800" fill="#FFFFFF">Experimental Evaluation Across 4 Sensor Domains</text>
+  <text x="40" y="58" font-family="'Segoe UI', monospace" font-size="11" fill="#94A3B8">STRICT LEAVE-UNITS-OUT VALIDATION · REFERENCE MACRO-F1 vs CASCADE DISAGREEMENT RISK (TARGET α = 0.05)</text>
+
+  <!-- Legend -->
+  <g transform="translate(560, 25)">
+    <rect x="0" y="3" width="14" height="14" rx="3" fill="#00E5FF"/>
+    <text x="20" y="15" font-family="'Segoe UI', sans-serif" font-size="11" fill="#F1F5F9">Reference Model Macro-F1 (f_raw)</text>
+
+    <rect x="0" y="24" width="14" height="14" rx="3" fill="#34D399"/>
+    <text x="20" y="36" font-family="'Segoe UI', sans-serif" font-size="11" fill="#F1F5F9">Cascade Disagreement Risk (α=0.05)</text>
+  </g>
+
+  <!-- Baseline Grid Lines (Y: 0 to 1.0 for F1; height 240, baseline y=330, y1.0=90) -->
+  <line x1="80" y1="90" x2="840" y2="90" stroke="#1E293B" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="70" y="94" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="end">1.0</text>
+
+  <line x1="80" y1="150" x2="840" y2="150" stroke="#1E293B" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="70" y="154" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="end">0.75</text>
+
+  <line x1="80" y1="210" x2="840" y2="210" stroke="#1E293B" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="70" y="214" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="end">0.50</text>
+
+  <line x1="80" y1="270" x2="840" y2="270" stroke="#1E293B" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="70" y="274" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="end">0.25</text>
+
+  <line x1="80" y1="330" x2="840" y2="330" stroke="#334155" stroke-width="1.5"/>
+  <text x="70" y="334" font-family="'Segoe UI', monospace" font-size="10" fill="#64748B" text-anchor="end">0.0</text>
+
+  <!-- Alpha Bound Reference Line: α = 0.05. For risk bars, we scale by ×10 (so 0.05 maps to 0.50 on the visual scale for clarity) -->
+  <line x1="80" y1="210" x2="840" y2="210" stroke="#FF8C32" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect x="740" y="196" width="95" height="18" rx="3" fill="#2E1308" stroke="#FF8C32" stroke-width="0.8"/>
+  <text x="745" y="209" font-family="'Segoe UI', monospace" font-size="9" font-weight="700" fill="#FF8C32">α = 0.05 BOUND</text>
+
+  <!-- Dataset 1: Paderborn Bearings -->
+  <!-- F1 = 0.604 -> height = 0.604 * 240 = 145 -> y = 330 - 145 = 185 -->
+  <!-- Risk = 0.019 -> scaled visual (0.019 * 10 * 240) = 45.6 -> y = 330 - 45.6 = 284.4 -->
+  <g transform="translate(130, 0)">
+    <rect x="0" y="185" width="44" height="145" rx="4" fill="url(#barF1)"/>
+    <text x="22" y="177" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#00E5FF" text-anchor="middle">0.604</text>
+
+    <rect x="52" y="284" width="44" height="46" rx="4" fill="url(#barRisk)"/>
+    <text x="74" y="276" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#34D399" text-anchor="middle">1.9%</text>
+
+    <text x="48" y="355" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle">Paderborn</text>
+    <text x="48" y="372" font-family="'Segoe UI', monospace" font-size="10" fill="#38BDF8" text-anchor="middle">Vibration (29 Bearings)</text>
+    <text x="48" y="388" font-family="'Segoe UI', monospace" font-size="9.5" fill="#34D399" text-anchor="middle">15/15 Folds Certified ✓</text>
+  </g>
+
+  <!-- Dataset 2: UCI HAR -->
+  <!-- F1 = 0.779 -> height = 0.779 * 240 = 187 -> y = 330 - 187 = 143 -->
+  <!-- Risk = 0.025 -> scaled visual (0.025 * 10 * 240) = 60 -> y = 330 - 60 = 270 -->
+  <g transform="translate(320, 0)">
+    <rect x="0" y="143" width="44" height="187" rx="4" fill="url(#barF1)"/>
+    <text x="22" y="135" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#00E5FF" text-anchor="middle">0.779</text>
+
+    <rect x="52" y="270" width="44" height="60" rx="4" fill="url(#barRisk)"/>
+    <text x="74" y="262" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#34D399" text-anchor="middle">2.5%</text>
+
+    <text x="48" y="355" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle">UCI HAR</text>
+    <text x="48" y="372" font-family="'Segoe UI', monospace" font-size="10" fill="#38BDF8" text-anchor="middle">Smartphone (30 Users)</text>
+    <text x="48" y="388" font-family="'Segoe UI', monospace" font-size="9.5" fill="#34D399" text-anchor="middle">5/5 Folds Certified ✓</text>
+  </g>
+
+  <!-- Dataset 3: Sleep-EDF -->
+  <!-- F1 = 0.671 -> height = 0.671 * 240 = 161 -> y = 330 - 161 = 169 -->
+  <!-- Risk = 0.023 -> scaled visual (0.023 * 10 * 240) = 55.2 -> y = 330 - 55 = 275 -->
+  <g transform="translate(510, 0)">
+    <rect x="0" y="169" width="44" height="161" rx="4" fill="url(#barF1)"/>
+    <text x="22" y="161" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#00E5FF" text-anchor="middle">0.671</text>
+
+    <rect x="52" y="275" width="44" height="55" rx="4" fill="url(#barRisk)"/>
+    <text x="74" y="267" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#34D399" text-anchor="middle">2.3%</text>
+
+    <text x="48" y="355" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle">Sleep-EDF</text>
+    <text x="48" y="372" font-family="'Segoe UI', monospace" font-size="10" fill="#38BDF8" text-anchor="middle">EEG (78 Subjects)</text>
+    <text x="48" y="388" font-family="'Segoe UI', monospace" font-size="9.5" fill="#34D399" text-anchor="middle">4/5 Folds Certified ✓</text>
+  </g>
+
+  <!-- Dataset 4: PTB-XL -->
+  <!-- F1 = 0.670 -> height = 0.670 * 240 = 160.8 -> y = 330 - 161 = 169 -->
+  <!-- Risk = 0.024 -> scaled visual (0.024 * 10 * 240) = 57.6 -> y = 330 - 58 = 272 -->
+  <g transform="translate(700, 0)">
+    <rect x="0" y="169" width="44" height="161" rx="4" fill="url(#barF1)"/>
+    <text x="22" y="161" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#00E5FF" text-anchor="middle">0.670</text>
+
+    <rect x="52" y="272" width="44" height="58" rx="4" fill="url(#barRisk)"/>
+    <text x="74" y="264" font-family="'Segoe UI', monospace" font-size="11" font-weight="700" fill="#34D399" text-anchor="middle">2.4%</text>
+
+    <text x="48" y="355" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle">PTB-XL</text>
+    <text x="48" y="372" font-family="'Segoe UI', monospace" font-size="10" fill="#38BDF8" text-anchor="middle">ECG (10,266 Patients)</text>
+    <text x="48" y="388" font-family="'Segoe UI', monospace" font-size="9.5" fill="#34D399" text-anchor="middle">5/5 Folds Certified ✓</text>
+  </g>
+</svg>

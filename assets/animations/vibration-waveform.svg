@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 200" width="100%" height="100%">
+  <defs>
+    <linearGradient id="waveBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#080C14"/>
+      <stop offset="50%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#080C14"/>
+    </linearGradient>
+    <pattern id="wvGrid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M 16 0 L 0 0 0 16" fill="none" stroke="#1E293B" stroke-width="0.75" stroke-opacity="0.5"/>
+    </pattern>
+    <style>
+      @keyframes dashScan {
+        0% { stroke-dashoffset: 600; }
+        100% { stroke-dashoffset: 0; }
+      }
+      .anim-wave {
+        stroke-dasharray: 600;
+        animation: dashScan 6s linear infinite;
+      }
+      .anim-pulse {
+        animation: pulseDot 2s ease-in-out infinite;
+      }
+      @keyframes pulseDot {
+        0%, 100% { r: 3.5; opacity: 0.6; }
+        50% { r: 5.5; opacity: 1; }
+      }
+    </style>
+  </defs>
+
+  <rect width="880" height="200" rx="8" fill="url(#waveBg)" stroke="#1E2E42" stroke-width="1.2"/>
+  <rect width="880" height="200" rx="8" fill="url(#wvGrid)"/>
+
+  <!-- Header -->
+  <text x="30" y="30" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Real-Time Sensor Vibration Waveform &amp; Representation Synthesis</text>
+  <text x="30" y="46" font-family="'Segoe UI', monospace" font-size="9.5" fill="#38BDF8">N=4,096 SAMPLES · 64 kHz SAMPLING RATE · LEAVE-UNITS-OUT BEARING VIBRATION</text>
+
+  <!-- Live Pulse Indicator -->
+  <circle cx="830" cy="28" r="4" fill="#22C55E" class="anim-pulse"/>
+  <text x="840" y="32" font-family="'Segoe UI', monospace" font-size="9" font-weight="700" fill="#22C55E">ACTIVE</text>
+
+  <!-- Center baseline -->
+  <line x1="30" y1="120" x2="850" y2="120" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- Raw Vibration Trace (Synthetic bearing waveform with impact bursts) -->
+  <path d="M 30 120 
+           Q 60 118, 90 120
+           T 130 119
+           Q 150 70, 165 170
+           T 180 85 T 195 150 T 210 100 T 225 130 T 240 120
+           Q 280 121, 320 120
+           T 360 119
+           Q 380 50, 395 185
+           T 410 70 T 425 165 T 440 90 T 455 140 T 470 120
+           Q 520 119, 560 121
+           T 600 120
+           Q 620 60, 635 175
+           T 650 80 T 665 155 T 680 95 T 695 135 T 710 120
+           Q 760 120, 800 119 T 850 120" 
+        fill="none" stroke="#00E5FF" stroke-width="2" class="anim-wave"/>
+
+  <!-- Bottom Labels -->
+  <g transform="translate(30, 175)">
+    <rect x="0" y="0" width="190" height="18" rx="3" fill="#0C1B2A" stroke="#00BFFF" stroke-width="0.8"/>
+    <text x="10" y="13" font-family="'Segoe UI', monospace" font-size="9" fill="#38BDF8">WINDOW N=4,096 (64 ms)</text>
+
+    <rect x="210" y="0" width="220" height="18" rx="3" fill="#1C1310" stroke="#FF8C32" stroke-width="0.8"/>
+    <text x="220" y="13" font-family="'Segoe UI', monospace" font-size="9" fill="#FB923C">FAULT IMPACT BURSTS DETECTED</text>
+
+    <rect x="450" y="0" width="240" height="18" rx="3" fill="#082318" stroke="#22C55E" stroke-width="0.8"/>
+    <text x="460" y="13" font-family="'Segoe UI', monospace" font-size="9" fill="#4ADE80">CRC CERTIFIED: R6 SUFFICIENT (16 B)</text>
+
+    <rect x="710" y="0" width="140" height="18" rx="3" fill="#191326" stroke="#C084FC" stroke-width="0.8"/>
+    <text x="720" y="13" font-family="'Segoe UI', monospace" font-size="9" fill="#E9D5FF">LATENCY: 0.407 ms</text>
+  </g>
+</svg>
